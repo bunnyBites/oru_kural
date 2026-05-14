@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 use crate::models::Tweet;
 
-const BACKEND: &str = "http://localhost:3000";
+const BACKEND: &str = "https://oru-kural-backend.fly.dev";
 
 #[derive(Deserialize)]
 struct TweetPage {

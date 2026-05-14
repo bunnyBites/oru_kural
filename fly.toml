@@ -1,5 +1,5 @@
 app = "oru-kural-backend"
-primary_region = "sin"
+primary_region = "bom"
 
 [build]
   dockerfile = "Dockerfile"

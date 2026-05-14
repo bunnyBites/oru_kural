@@ -1,0 +1,9 @@
+target/
+frontend/target/
+backend/target/
+node_modules/
+scripts/
+supabase/
+.git/
+.env
+*.md
