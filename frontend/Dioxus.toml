@@ -1,0 +1,10 @@
+[application]
+name = "oru-kural-frontend"
+default_platform = "web"
+
+[web.app]
+title = "ஒரு குரல் — Oru Kural"
+
+[web.watcher]
+reload_html = true
+watch_path = ["src", "assets"]
