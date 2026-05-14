@@ -1,0 +1,54 @@
+name: Weekly Tweet Scraper
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'   # Monday 2am UTC = Monday 7:30am IST
+  workflow_dispatch:        # allow manual trigger from GitHub UI
+
+jobs:
+  scrape-and-categorize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('scripts/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Run tweet scraper (X API v2)
+        env:
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/scrape_tweets.py
+
+      - name: Run AI categorizer (Gemini Flash)
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/categorize_tweets.py
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Oru Kural scrape job failed. Check logs above."
+          echo "Run ID: ${{ github.run_id }}"
+          echo "Triggered by: ${{ github.event_name }}"
