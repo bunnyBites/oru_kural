@@ -30,8 +30,8 @@ ENV/
 
 # Rust
 target/
-Cargo.lock
 **/*.rs.bk
+# Cargo.lock is intentionally committed for binary crates
 
 # IDE
 .idea/
