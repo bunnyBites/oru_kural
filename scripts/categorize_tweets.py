@@ -24,11 +24,11 @@ BATCH_SIZE = 40
 
 
 async def fetch_uncategorized(client: httpx.AsyncClient) -> list[dict[str, Any]]:
-    """Fetch tweets with no category, newest first. Read — uses anon key."""
+    """Fetch tweets missing a translation (or category), newest first. Read — uses anon key."""
     resp = await client.get(
         f"{SUPABASE_URL}/rest/v1/tweets",
         params={
-            "category": "is.null",
+            "translated_content": "is.null",
             "order": "posted_at.desc",
             "select": "id,content",
         },
@@ -43,13 +43,17 @@ async def fetch_uncategorized(client: httpx.AsyncClient) -> list[dict[str, Any]]
 
 
 async def update_tweet(
-    client: httpx.AsyncClient, tweet_id: str, category: str, confidence: float
+    client: httpx.AsyncClient,
+    tweet_id: str,
+    category: str,
+    confidence: float,
+    translated_content: str | None,
 ) -> None:
-    """Patch a tweet's category and confidence. Write — uses service role key."""
+    """Patch a tweet's category, confidence, and translation. Write — uses service role key."""
     resp = await client.patch(
         f"{SUPABASE_URL}/rest/v1/tweets",
         params={"id": f"eq.{tweet_id}"},
-        json={"category": category, "confidence": confidence},
+        json={"category": category, "confidence": confidence, "translated_content": translated_content},
         headers={
             "apikey": SUPABASE_SERVICE_ROLE_KEY,
             "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
@@ -85,8 +89,12 @@ async def process_batch(
             err += 1
             continue
 
+        translated_content = result.get("translated_content")
+        if translated_content is None:
+            print(f"  warning: translated_content missing for tweet {tweet_id}, setting to None")
+
         try:
-            await update_tweet(client, str(tweet_id), str(category), float(confidence))
+            await update_tweet(client, str(tweet_id), str(category), float(confidence), translated_content)
             ok += 1
         except (httpx.HTTPStatusError, ValueError) as exc:
             print(f"  failed to update tweet {tweet_id}: {exc}")

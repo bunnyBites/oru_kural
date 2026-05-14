@@ -1,4 +1,6 @@
 mod api;
+mod components;
+mod models;
 mod views;
 
 use dioxus::prelude::*;

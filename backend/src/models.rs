@@ -10,6 +10,7 @@ pub struct Tweet {
     pub posted_at: DateTime<Utc>,
     pub category: Option<String>,
     pub confidence: Option<f32>,
+    pub translated_content: Option<String>,
     pub scraped_at: DateTime<Utc>,
 }
 

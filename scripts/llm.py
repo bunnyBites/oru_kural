@@ -18,25 +18,35 @@ from dotenv import load_dotenv
 load_dotenv()
 
 _CLASSIFICATION_PROMPT = """\
-You are classifying Tamil Nadu political tweets mentioning the Chief Minister. \
-Classify each tweet into EXACTLY ONE category from this list: \
-[Demand, Complaint, Public Event, Welcome, Infrastructure, Health, Education, Criticism, Other]
+You are processing Tamil Nadu political tweets mentioning the Chief Minister.
 
-Rules:
-Demand: asking CM to do something
-Complaint: reporting a problem or failure
-Public Event: announcing or reporting an event
-Welcome: greeting or felicitating the CM
-Infrastructure: roads, water, power, transport
-Health: hospitals, medicine, disease
-Education: schools, colleges, scholarships
-Criticism: negative political commentary
-Other: anything that doesn't fit above
+For each tweet, do TWO things:
+1. Classify into EXACTLY ONE category from: [Demand, Complaint, Public Event, Welcome, Infrastructure, Health, Education, Criticism, Other]
+2. Translate the tweet content to English. If the tweet is already in English, copy it as-is into the translation field.
 
-Return ONLY valid JSON. No explanation. No markdown. \
-Format: [{{"id": "<tweet_id>", "category": "<category>", "confidence": <0.0-1.0>}}]
+Category rules:
+- Demand: asking CM to do something
+- Complaint: reporting a problem or failure
+- Public Event: announcing or reporting an event
+- Welcome: greeting or felicitating the CM
+- Infrastructure: roads, water, power, transport
+- Health: hospitals, medicine, disease
+- Education: schools, colleges, scholarships
+- Criticism: negative political commentary
+- Other: anything that doesn't fit above
 
-Tweets to classify: {tweets_json}\
+Return ONLY valid JSON. No explanation. No markdown. No code fences.
+Format:
+[
+  {{
+    "id": "<tweet_id>",
+    "category": "<category>",
+    "confidence": <0.0 to 1.0>,
+    "translated_content": "<English translation or original if already English>"
+  }}
+]
+
+Tweets to process: {tweets_json}\
 """
 
 

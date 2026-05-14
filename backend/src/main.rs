@@ -42,7 +42,7 @@ async fn main() {
     let app = Router::new()
         .route("/health", get(handlers::health))
         .route("/api/tweets", get(handlers::list_tweets))
-        .route("/api/tweets/{id}", get(handlers::get_tweet))
+        .route("/api/tweets/:id", get(handlers::get_tweet))
         .route("/api/stats", get(handlers::get_stats))
         .layer(cors)
         .with_state(state);

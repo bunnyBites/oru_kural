@@ -14,7 +14,7 @@ use crate::{
 };
 
 const TWEET_COLS: &str =
-    "id,author_handle,author_name,content,posted_at,category,confidence,scraped_at";
+    "id,author_handle,author_name,content,posted_at,category,confidence,translated_content,scraped_at";
 
 fn auth(req: reqwest::RequestBuilder, key: &str) -> reqwest::RequestBuilder {
     req.header("apikey", key)
