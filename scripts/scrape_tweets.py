@@ -1,16 +1,18 @@
 """
-Scrape tweets mentioning @CMofTamilNadu via Apify and upsert to Supabase.
+Scrape tweets mentioning @CMOTamilnadu via X API v2 and upsert to Supabase.
 
 Usage:
-    python scrape_tweets.py
-    python scrape_tweets.py --dry-run sample_data.json
+    python scrape_tweets.py                      # full run — fetch + upsert
+    python scrape_tweets.py --from-file FILE     # skip X API, upsert from saved JSON
 """
 
 import argparse
 import asyncio
 import json
 import os
-from datetime import datetime, timezone
+import random
+import time
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -18,157 +20,315 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-APIFY_API_KEY: str = os.environ["APIFY_API_KEY"]
-SUPABASE_URL: str = os.environ["SUPABASE_URL"]
-SUPABASE_ANON_KEY: str = os.environ["SUPABASE_ANON_KEY"]
-
-ACTOR_ID = "apidojo/tweet-scraper"
-SEARCH_QUERY = "@CMofTamilNadu"
-MAX_ITEMS = 500
-POLL_INTERVAL_SECONDS = 10
+MAX_PAGES = 10
+MIN_ENGAGEMENT = 1
 UPSERT_BATCH_SIZE = 100
+SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
+CACHE_FILE = "last_fetch.json"
 
 
-async def start_apify_run(client: httpx.AsyncClient) -> tuple[str, str]:
-    """Trigger the Apify actor and return (run_id, dataset_id)."""
+async def backoff_sleep(attempt: int, base: float = 2.0, cap: float = 60.0) -> None:
+    """Exponential backoff with jitter. attempt is 0-indexed."""
+    delay = min(base ** attempt + random.uniform(0, 1), cap)
+    print(f"Backoff: sleeping {delay:.1f}s (attempt {attempt + 1})")
+    await asyncio.sleep(delay)
+
+
+async def insert_scrape_run(
+    client: httpx.AsyncClient,
+    supabase_url: str,
+    service_key: str,
+    script: str,
+) -> int:
     resp = await client.post(
-        f"https://api.apify.com/v2/acts/{ACTOR_ID}/runs",
-        params={"token": APIFY_API_KEY},
-        json={"searchTerms": [SEARCH_QUERY], "maxItems": MAX_ITEMS},
-        timeout=30,
+        f"{supabase_url}/rest/v1/scrape_runs",
+        json={"script": script, "status": "running"},
+        headers={
+            "apikey": service_key,
+            "Authorization": f"Bearer {service_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation",
+        },
+        timeout=15,
     )
     resp.raise_for_status()
-    data = resp.json()["data"]
-    return data["id"], data["defaultDatasetId"]
+    return resp.json()[0]["id"]
 
 
-async def poll_until_done(client: httpx.AsyncClient, run_id: str) -> None:
-    """Block until the Apify run reaches a terminal state."""
-    terminal_states = {"SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"}
+async def complete_scrape_run(
+    client: httpx.AsyncClient,
+    supabase_url: str,
+    service_key: str,
+    run_id: int,
+    tweets_fetched: int,
+    tweets_upserted: int,
+    pages_fetched: int,
+) -> None:
+    resp = await client.patch(
+        f"{supabase_url}/rest/v1/scrape_runs",
+        params={"id": f"eq.{run_id}"},
+        json={
+            "status": "completed",
+            "completed_at": datetime.utcnow().isoformat() + "Z",
+            "tweets_fetched": tweets_fetched,
+            "tweets_upserted": tweets_upserted,
+            "pages_fetched": pages_fetched,
+        },
+        headers={
+            "apikey": service_key,
+            "Authorization": f"Bearer {service_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal",
+        },
+        timeout=15,
+    )
+    resp.raise_for_status()
+
+
+async def fail_scrape_run(
+    client: httpx.AsyncClient,
+    supabase_url: str,
+    service_key: str,
+    run_id: int,
+    error: str,
+) -> None:
+    resp = await client.patch(
+        f"{supabase_url}/rest/v1/scrape_runs",
+        params={"id": f"eq.{run_id}"},
+        json={
+            "status": "failed",
+            "completed_at": datetime.utcnow().isoformat() + "Z",
+            "error_message": error,
+        },
+        headers={
+            "apikey": service_key,
+            "Authorization": f"Bearer {service_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=minimal",
+        },
+        timeout=15,
+    )
+    resp.raise_for_status()
+
+
+async def fetch_page(
+    client: httpx.AsyncClient,
+    bearer_token: str,
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    headers = {"Authorization": f"Bearer {bearer_token}"}
+    server_err_attempts = 0
+
     while True:
-        resp = await client.get(
-            f"https://api.apify.com/v2/actor-runs/{run_id}",
-            params={"token": APIFY_API_KEY},
-            timeout=30,
-        )
+        resp = await client.get(SEARCH_URL, params=params, headers=headers, timeout=30)
+
+        if resp.status_code == 429:
+            reset_header = resp.headers.get("x-rate-limit-reset")
+            if reset_header:
+                sleep_for = max(0, int(reset_header) - time.time()) + 5
+                print(f"Rate limited. Sleeping {sleep_for:.0f}s until reset…")
+                await asyncio.sleep(sleep_for)
+            else:
+                await backoff_sleep(server_err_attempts)
+            continue
+
+        if resp.status_code in (400, 401, 403):
+            raise RuntimeError(f"X API error {resp.status_code}: {resp.text}") from None
+
+        if resp.status_code >= 500:
+            if server_err_attempts >= 3:
+                raise RuntimeError(
+                    f"X API 5xx after 3 retries: {resp.status_code}: {resp.text}"
+                ) from None
+            await backoff_sleep(server_err_attempts)
+            server_err_attempts += 1
+            continue
+
         resp.raise_for_status()
-        status: str = resp.json()["data"]["status"]
-        print(f"  run status: {status}")
-        if status == "SUCCEEDED":
-            return
-        if status in terminal_states:
-            raise RuntimeError(f"Apify run {run_id} ended with status: {status}")
-        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+        return resp.json()
 
 
-async def fetch_dataset(client: httpx.AsyncClient, dataset_id: str) -> list[dict[str, Any]]:
-    """Download all items from the Apify dataset."""
-    resp = await client.get(
-        f"https://api.apify.com/v2/datasets/{dataset_id}/items",
-        params={"token": APIFY_API_KEY, "format": "json", "limit": MAX_ITEMS},
-        timeout=60,
+def has_engagement(tweet: dict[str, Any]) -> bool:
+    """Returns True if the tweet has any engagement signal."""
+    metrics = tweet.get("public_metrics", {})
+    return (
+        metrics.get("like_count", 0) >= MIN_ENGAGEMENT
+        or metrics.get("retweet_count", 0) >= MIN_ENGAGEMENT
+        or metrics.get("reply_count", 0) >= MIN_ENGAGEMENT
     )
-    resp.raise_for_status()
-    return resp.json()  # type: ignore[return-value]
 
 
-def map_item(item: dict[str, Any]) -> dict[str, Any] | None:
-    """Map a raw Apify tweet item to the tweets table schema."""
-    try:
-        tweet_id = str(item["id"])
+async def scrape_tweets(bearer_token: str) -> tuple[list[dict[str, Any]], int, int]:
+    """Returns (rows, page_count, skipped_count)."""
+    params: dict[str, Any] = {
+        "query": "@CMOTamilnadu -is:retweet (lang:ta OR lang:en)",
+        "max_results": 100,
+        "tweet.fields": "created_at,author_id,text,public_metrics",
+        "expansions": "author_id",
+        "user.fields": "username,name",
+    }
 
-        # apidojo/tweet-scraper nests author under "author" or "user"
-        author = item.get("author") or item.get("user") or {}
-        author_handle: str | None = author.get("userName") or author.get("screen_name")
-        author_name: str | None = author.get("name")
-        content: str | None = item.get("text") or item.get("full_text")
-        posted_at: str | None = item.get("createdAt") or item.get("created_at")
+    all_rows: list[dict[str, Any]] = []
+    page_count = 0
+    skipped_count = 0
 
-        if not all([tweet_id, author_handle, content, posted_at]):
-            missing = [k for k, v in {"id": tweet_id, "author_handle": author_handle,
-                                       "content": content, "posted_at": posted_at}.items() if not v]
-            print(f"  skipping item — missing fields: {missing}")
-            return None
+    async with httpx.AsyncClient() as client:
+        for page_num in range(1, MAX_PAGES + 1):
+            data = await fetch_page(client, bearer_token, params)
+            page_count += 1
 
-        return {
-            "id": tweet_id,
-            "author_handle": author_handle,
-            "author_name": author_name,
-            "content": content,
-            "posted_at": posted_at,
-            "category": None,
-            "confidence": None,
-            "raw_json": item,
-            "scraped_at": datetime.now(timezone.utc).isoformat(),
-        }
-    except (KeyError, TypeError, ValueError) as exc:
-        print(f"  skipping malformed item: {exc}")
-        return None
+            tweets = data.get("data", [])
+            users = {u["id"]: u for u in data.get("includes", {}).get("users", [])}
+
+            print(f"Fetched page {page_num}: {len(tweets)} tweets")
+
+            for tweet in tweets:
+                author_id = tweet.get("author_id")
+                if not author_id or author_id not in users:
+                    print(f"  warning: author_id {author_id!r} not in users lookup — skipping tweet {tweet.get('id')}")
+                    continue
+
+                if not has_engagement(tweet):
+                    skipped_count += 1
+                    continue
+
+                user = users[author_id]
+                all_rows.append({
+                    "id": tweet["id"],
+                    "author_handle": user["username"],
+                    "author_name": user["name"],
+                    "content": tweet["text"],
+                    "posted_at": tweet["created_at"],
+                    "category": None,
+                    "confidence": None,
+                    "raw_json": tweet,
+                    "scraped_at": datetime.utcnow().isoformat() + "Z",
+                })
+
+            next_token = data.get("meta", {}).get("next_token")
+            if not next_token:
+                break
+
+            params["next_token"] = next_token
+            await asyncio.sleep(1)
+
+    return all_rows, page_count, skipped_count
 
 
-async def upsert_batch(client: httpx.AsyncClient, rows: list[dict[str, Any]]) -> None:
-    """Upsert a single batch to Supabase, merging on primary key."""
+async def upsert_batch(
+    client: httpx.AsyncClient,
+    supabase_url: str,
+    service_key: str,
+    rows: list[dict[str, Any]],
+) -> None:
     resp = await client.post(
-        f"{SUPABASE_URL}/rest/v1/tweets",
+        f"{supabase_url}/rest/v1/tweets",
         json=rows,
         headers={
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+            "apikey": service_key,
+            "Authorization": f"Bearer {service_key}",
             "Content-Type": "application/json",
             "Prefer": "resolution=merge-duplicates",
         },
         timeout=30,
     )
-    resp.raise_for_status()
+    if not resp.is_success:
+        raise RuntimeError(f"Supabase upsert {resp.status_code}: {resp.text}") from None
 
 
-async def upsert_all(client: httpx.AsyncClient, rows: list[dict[str, Any]]) -> None:
-    """Upsert rows in batches of UPSERT_BATCH_SIZE."""
-    for i in range(0, len(rows), UPSERT_BATCH_SIZE):
-        batch = rows[i : i + UPSERT_BATCH_SIZE]
-        end = i + len(batch)
-        print(f"  upserting rows {i + 1}–{end} of {len(rows)}…")
-        await upsert_batch(client, batch)
+async def upsert_all(
+    supabase_url: str,
+    service_key: str,
+    rows: list[dict[str, Any]],
+) -> int:
+    async with httpx.AsyncClient() as client:
+        for i in range(0, len(rows), UPSERT_BATCH_SIZE):
+            batch = rows[i : i + UPSERT_BATCH_SIZE]
+            await upsert_batch(client, supabase_url, service_key, batch)
+            print(f"Upserted batch of {len(batch)} tweets")
+    return len(rows)
 
 
 async def main() -> None:
-    parser = argparse.ArgumentParser(description="Scrape @CMofTamilNadu tweets and store in Supabase.")
+    parser = argparse.ArgumentParser(description="Scrape @CMOTamilnadu tweets and store in Supabase.")
     parser.add_argument(
-        "--dry-run",
+        "--from-file",
         metavar="FILE",
-        help="Skip Apify; load raw dataset JSON from FILE instead (saves API credits during testing)",
+        help=f"Skip X API fetch; load mapped rows from FILE and upsert directly (use {CACHE_FILE} from a previous run)",
     )
     args = parser.parse_args()
 
-    async with httpx.AsyncClient() as client:
-        if args.dry_run:
-            print(f"[dry-run] loading dataset from {args.dry_run}")
-            with open(args.dry_run, encoding="utf-8") as fh:
-                raw_items: list[dict[str, Any]] = json.load(fh)
+    supabase_url: str = os.environ["SUPABASE_URL"].rstrip("/").removesuffix("/rest/v1")
+    service_key: str = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+
+    run_id: int | None = None
+    async with httpx.AsyncClient() as tracking_client:
+        try:
+            run_id = await insert_scrape_run(tracking_client, supabase_url, service_key, script="scrape_tweets")
+        except Exception as exc:
+            print(f"warning: scrape_runs tracking unavailable (migration not applied?): {exc}")
+
+    page_count = 0
+    skipped_count = 0
+
+    async def _complete(fetched: int, upserted: int, pages: int) -> None:
+        if run_id is None:
+            return
+        async with httpx.AsyncClient() as tc:
+            try:
+                await complete_scrape_run(tc, supabase_url, service_key, run_id,
+                                          tweets_fetched=fetched, tweets_upserted=upserted,
+                                          pages_fetched=pages)
+            except Exception as exc:
+                print(f"warning: failed to complete scrape_run: {exc}")
+
+    async def _fail(error: str) -> None:
+        if run_id is None:
+            return
+        async with httpx.AsyncClient() as tc:
+            try:
+                await fail_scrape_run(tc, supabase_url, service_key, run_id, error=error)
+            except Exception as exc:
+                print(f"warning: failed to mark scrape_run as failed: {exc}")
+
+    try:
+        if args.from_file:
+            print(f"Loading rows from {args.from_file}…")
+            with open(args.from_file, encoding="utf-8") as fh:
+                rows: list[dict[str, Any]] = json.load(fh)
+            print(f"Loaded {len(rows)} rows.")
         else:
-            print("starting Apify run…")
-            run_id, dataset_id = await start_apify_run(client)
-            print(f"  run_id={run_id}  dataset_id={dataset_id}")
+            bearer_token: str = os.environ["X_BEARER_TOKEN"]
+            rows, page_count, skipped_count = await scrape_tweets(bearer_token)
+            # Save before upserting so data is not lost if upsert fails
+            with open(CACHE_FILE, "w", encoding="utf-8") as fh:
+                json.dump(rows, fh, ensure_ascii=False, indent=2)
+            print(f"Saved {len(rows)} rows to {CACHE_FILE}")
 
-            print("polling for completion…")
-            await poll_until_done(client, run_id)
+        total_fetched = len(rows)
+        # Deduplicate by tweet id — X API can return the same tweet on multiple pages
+        seen: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            seen[row["id"]] = row
+        rows = list(seen.values())
+        if total_fetched != len(rows):
+            print(f"Deduplicated {total_fetched - len(rows)} duplicate tweets → {len(rows)} unique")
 
-            print("fetching dataset…")
-            raw_items = await fetch_dataset(client, dataset_id)
-
-        print(f"mapping {len(raw_items)} raw items…")
-        rows = [row for item in raw_items if (row := map_item(item)) is not None]
-        skipped = len(raw_items) - len(rows)
-        print(f"  {len(rows)} valid rows, {skipped} skipped")
+        if skipped_count:
+            print(f"Skipped {skipped_count} zero-engagement tweets.")
 
         if not rows:
-            print("nothing to upsert — exiting.")
+            print("Done. Total fetched: 0. Total upserted: 0.")
+            await _complete(0, 0, page_count)
             return
 
-        print("upserting to Supabase…")
-        await upsert_all(client, rows)
+        total_upserted = await upsert_all(supabase_url, service_key, rows)
+        print(f"Done. Total fetched: {total_fetched}. Total upserted: {total_upserted}.")
+        await _complete(total_fetched, total_upserted, page_count)
 
-    print(f"done. {len(rows)} tweets upserted.")
+    except Exception as e:
+        await _fail(str(e))
+        raise
 
 
 if __name__ == "__main__":

@@ -1,3 +1,114 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@source "./src/**/*.rs";
+
+@theme {
+  /* ── Light mode surface tokens ── */
+  --color-tvk-bg:           #FAF7F2;
+  --color-tvk-surface:      #FFFFFF;
+  --color-tvk-surface-2:    #F3EDE4;
+  --color-tvk-border:       #E8DDD4;
+  --color-tvk-border-hover: #C9A898;
+
+  /* ── Brand colors ── */
+  --color-tvk-maroon:       #8B1A2B;
+  --color-tvk-maroon-lit:   #A8203A;
+  --color-tvk-maroon-soft:  #F5E8EA;
+  --color-tvk-gold:         #B8860B;
+  --color-tvk-gold-soft:    #FDF3D8;
+
+  /* ── Text tokens ── */
+  --color-tvk-text:           #1C1410;
+  --color-tvk-text-secondary: #6B5B52;
+  --color-tvk-text-dim:       #A89080;
+
+  /* ── Category badge colors ── */
+  --color-cat-demand:        #B83227;
+  --color-cat-complaint:     #C96A18;
+  --color-cat-public-event:  #7B3AA8;
+  --color-cat-welcome:       #1E8A4A;
+  --color-cat-infrastructure:#1A6FA8;
+  --color-cat-health:        #0E7A68;
+  --color-cat-education:     #C04A00;
+  --color-cat-criticism:     #B83227;
+  --color-cat-other:         #6B7280;
+
+  /* ── Typography ── */
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-body:    'Inter', system-ui, sans-serif;
+  --font-tamil:   'Noto Serif Tamil', serif;
+  --font-mono:    'JetBrains Mono', monospace;
+}
+
+@layer base {
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Playfair+Display:ital,wght@0,700;1,400&family=Noto+Serif+Tamil:wght@400;600&family=JetBrains+Mono:wght@400&display=swap');
+
+  html {
+    background-color: var(--color-tvk-bg);
+    color: var(--color-tvk-text);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  html[data-theme="dark"] {
+    --color-tvk-bg:            #1A1412;
+    --color-tvk-surface:       #231D1B;
+    --color-tvk-surface-2:     #2E2420;
+    --color-tvk-border:        #3D2D28;
+    --color-tvk-border-hover:  #6B3A30;
+
+    --color-tvk-maroon-soft:   #3D1218;
+    --color-tvk-gold:          #D4A017;
+    --color-tvk-gold-soft:     #2A2008;
+
+    --color-tvk-text:          #F2EDE8;
+    --color-tvk-text-secondary:#9E8070;
+    --color-tvk-text-dim:      #5C4D45;
+  }
+}
+
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position:  200% 0; }
+}
+
+@keyframes bar-fill {
+  from { width: 0%; }
+}
+
+.animate-card-enter {
+  animation: card-enter 350ms ease-out both;
+}
+
+.animate-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-tvk-surface) 25%,
+    var(--color-tvk-surface-2) 50%,
+    var(--color-tvk-surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+.animate-bar-fill {
+  animation: bar-fill 600ms ease-out 200ms both;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

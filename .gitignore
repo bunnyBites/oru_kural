@@ -40,5 +40,26 @@ target/
 *.swo
 .DS_Store
 
+# Node
+node_modules/
+package-lock.json
+
+# Dioxus
+.dx/
+frontend/dist/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Python pip cache
+.cache/
+pip-wheel-metadata/
+scripts/__pycache__/
+
+# Planning docs (local only)
+oru_kural_*.md
+
 # Test data
 scripts/sample_*.json
+scripts/last_fetch.json
