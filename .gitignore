@@ -60,6 +60,15 @@ scripts/__pycache__/
 # Planning docs (local only)
 oru_kural_*.md
 
+# Deployment artifacts
+fly.toml.local
+.vercel/
+*.wasm
+frontend/dist/
+
+# Environment
+.env.local
+
 # Test data
 scripts/sample_*.json
 scripts/last_fetch.json
