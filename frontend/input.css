@@ -1,3 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+/* tell Tailwind v4 to scan Rust source files for class names */
+@source "./src/**/*.rs";

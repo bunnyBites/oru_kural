@@ -40,5 +40,8 @@ target/
 *.swo
 .DS_Store
 
+# Node
+node_modules/
+
 # Test data
 scripts/sample_*.json

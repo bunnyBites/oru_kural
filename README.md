@@ -115,7 +115,7 @@ cargo run
 ```bash
 # Terminal A — compile Tailwind (run once, then watch)
 cd frontend
-npx tailwindcss -i input.css -o assets/tailwind.css --watch
+npm run css
 
 # Terminal B — serve the Dioxus app
 cd frontend
