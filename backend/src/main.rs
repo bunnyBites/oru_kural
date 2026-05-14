@@ -15,9 +15,11 @@ pub struct AppState {
 async fn main() {
     dotenvy::dotenv().ok();
 
+    // Strip any trailing /rest/v1[/] so the value is always the bare project URL.
     let supabase_url = std::env::var("SUPABASE_URL")
         .expect("SUPABASE_URL must be set")
         .trim_end_matches('/')
+        .trim_end_matches("/rest/v1")
         .to_string();
     let supabase_anon_key =
         std::env::var("SUPABASE_ANON_KEY").expect("SUPABASE_ANON_KEY must be set");

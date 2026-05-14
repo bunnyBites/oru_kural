@@ -4,7 +4,7 @@ LLM abstraction layer for tweet classification.
 All classification calls go through classify_tweets() — never call an LLM SDK
 directly from categorize_tweets.py.
 
-Current backend: Google Gemini via google-generativeai SDK.
+Current backend: Google Gemini via google-genai SDK.
 Future option:   Set OPENROUTER_API_KEY (+ optionally OPENROUTER_MODEL) to switch
                  to OpenRouter's OpenAI-compatible API with no structural changes.
 """
@@ -54,12 +54,14 @@ def _parse_response(text: str) -> list[dict[str, Any]]:
 
 
 async def _classify_gemini(tweets: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    from google import generativeai as genai
+    from google import genai
 
     model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-    genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    model = genai.GenerativeModel(model_name)
-    response = await model.generate_content_async(_build_prompt(tweets))
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    response = await client.aio.models.generate_content(
+        model=model_name,
+        contents=_build_prompt(tweets),
+    )
     return _parse_response(response.text)
 
 

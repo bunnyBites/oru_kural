@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-Oru Kural (ஒரு குரல்) is a civic tech dashboard that scrapes tweets mentioning the Tamil Nadu CM's X handle (@CMofTamilNadu), categorizes them with Gemini AI, and displays them in a web UI. Three independent sub-projects in one repo — no shared Cargo workspace.
+Oru Kural (ஒரு குரல்) is a civic tech dashboard that scrapes tweets mentioning the Tamil Nadu CM's X handle (@CMOTamilnadu), categorizes them with Gemini AI, and displays them in a web UI. Three independent sub-projects in one repo — no shared Cargo workspace.
 
 ## Commands
 

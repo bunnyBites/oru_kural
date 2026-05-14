@@ -2,7 +2,7 @@
 
 **One Voice** — A civic tech window into what Tamil Nadu citizens are saying to their Chief Minister.
 
-Oru Kural scrapes public tweets mentioning the Tamil Nadu CM's official X handle (@CMofTamilNadu), uses AI to categorize them by topic (infrastructure, health, education, complaints, and more), and surfaces the results in a live dashboard — turning the noise of social media into structured civic signal.
+Oru Kural scrapes public tweets mentioning the Tamil Nadu CM's official X handle (@CMOTamilnadu), uses AI to categorize them by topic (infrastructure, health, education, complaints, and more), and surfaces the results in a live dashboard — turning the noise of social media into structured civic signal.
 
 ---
 
@@ -11,7 +11,7 @@ Oru Kural scrapes public tweets mentioning the Tamil Nadu CM's official X handle
 ```
   X / Twitter
       │
-      │  (Apify actor: apidojo/tweet-scraper)
+      │  (X API v2 search/recent — Bearer Token)
       ▼
  scrape_tweets.py ──────────────────────────┐
                                             │ upsert (batch 100)
@@ -64,10 +64,11 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 # fill in your keys:
-#   SUPABASE_URL        — project URL from Supabase dashboard
-#   SUPABASE_ANON_KEY   — anon/public key from Supabase dashboard
-#   GEMINI_API_KEY      — Google AI Studio key
-#   APIFY_API_KEY       — Apify console → Settings → Integrations
+#   SUPABASE_URL              — project URL from Supabase dashboard
+#   SUPABASE_ANON_KEY         — anon/public key from Supabase dashboard
+#   SUPABASE_SERVICE_ROLE_KEY — service role key (writes only; never expose in frontend)
+#   GEMINI_API_KEY            — Google AI Studio key
+#   X_BEARER_TOKEN            — X API v2 app-only bearer token from developer.x.com
 ```
 
 ### 4. Supabase table
@@ -91,14 +92,31 @@ create table tweets (
 ### 5. Run the pipeline
 
 ```bash
-# Step 1 — scrape (triggers Apify, polls until done, upserts to Supabase)
+# Step 1 — scrape via X API v2, upsert to Supabase (requires X_BEARER_TOKEN)
 python scrape_tweets.py
-
-# Step 1 (dry-run, no Apify credits) — load from a local JSON file
-python scrape_tweets.py --dry-run sample_data.json
 
 # Step 2 — categorize all uncategorized tweets with Gemini
 python categorize_tweets.py
+```
+
+## Data Fetching
+
+Tweets are fetched via the official **X API v2** (`search/recent` endpoint).
+
+- Auth: App-only Bearer Token
+- Query: `@CMOTamilnadu -is:retweet lang:ta,en`
+- Pagination: up to 1,000 tweets per run (configurable via `MAX_PAGES`)
+- Cost: ~$0.005/tweet — 1,000 tweets/week ≈ $5/month
+- Run weekly to stay within the 7-day recency window
+
+A legacy Apify-based scraper is preserved at `scripts/scrape_tweets_apify.py` for one-time historical backfill only.
+
+### Running the scraper
+```bash
+cd scripts
+pip install -r requirements.txt
+cp ../.env.example ../.env   # fill in your keys
+python scrape_tweets.py
 ```
 
 ### 6. Run the backend
@@ -129,7 +147,7 @@ dx serve
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| **1 — Data pipeline** | ✅ Done | Apify scraper → Supabase, Gemini categorization |
+| **1 — Data pipeline** | ✅ Done | X API v2 scraper → Supabase, Gemini categorization |
 | **2 — Backend API** | ✅ Done | Rust + Axum REST API (tweets list/filter/detail + stats) |
 | **3 — Dashboard** | ✅ Done | Rust + Dioxus 0.7 web frontend with category pills and detail view |
 | **4 — Automation** | 🔜 Next | Scheduled scrape + categorize (cron / Supabase Edge Functions) |
