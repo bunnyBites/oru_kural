@@ -14,16 +14,28 @@ pub struct Tweet {
     pub scraped_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct CategoryStat {
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CategoryStatRow {
     pub category: String,
-    pub count: i64,
+    pub tweet_count: i64,
+    pub last_updated: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize)]
-pub struct Stats {
-    pub total: i64,
-    pub uncategorized: i64,
-    pub categories: Vec<CategoryStat>,
-    pub last_scraped_at: Option<DateTime<Utc>>,
+pub struct PageMeta {
+    pub count: usize,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TweetPage {
+    pub data: Vec<Tweet>,
+    pub meta: PageMeta,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StatsPage {
+    pub data: Vec<CategoryStatRow>,
 }

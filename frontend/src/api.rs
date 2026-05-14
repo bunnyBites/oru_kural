@@ -1,6 +1,13 @@
+use serde::Deserialize;
+
 use crate::models::Tweet;
 
 const BACKEND: &str = "http://localhost:3000";
+
+#[derive(Deserialize)]
+struct TweetPage {
+    data: Vec<Tweet>,
+}
 
 pub async fn fetch_tweets(category: Option<String>) -> Result<Vec<Tweet>, String> {
     let client = reqwest::Client::new();
@@ -11,8 +18,9 @@ pub async fn fetch_tweets(category: Option<String>) -> Result<Vec<Tweet>, String
     req.send()
         .await
         .map_err(|e| e.to_string())?
-        .json::<Vec<Tweet>>()
+        .json::<TweetPage>()
         .await
+        .map(|p| p.data)
         .map_err(|e| e.to_string())
 }
 
