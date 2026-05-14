@@ -31,9 +31,12 @@ pub fn TweetGrid() -> Element {
                     }
                 }
             } else if filtered.is_empty() {
-                div { class: "flex items-center justify-center py-24",
-                    p { class: "font-display italic text-tvk-dim text-xl",
+                div { class: "flex flex-col items-center justify-center py-32 gap-3",
+                    p { class: "font-display italic text-tvk-text-dim text-2xl",
                         "No voices found"
+                    }
+                    p { class: "font-body text-sm text-tvk-text-dim",
+                        "Try a different filter or search term"
                     }
                 }
             } else {

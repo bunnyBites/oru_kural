@@ -1,5 +1,4 @@
 use dioxus::prelude::*;
-
 use crate::{Route, api::fetch_tweet, models::format_ts};
 
 #[component]
@@ -10,7 +9,7 @@ pub fn Detail(id: String) -> Element {
         div { class: "min-h-screen bg-tvk-bg",
             div { class: "max-w-2xl mx-auto px-6 py-8",
                 Link {
-                    class: "inline-flex items-center gap-1 text-sm text-tvk-muted \
+                    class: "inline-flex items-center gap-1 text-sm text-tvk-text-secondary \
                             hover:text-tvk-text transition-colors mb-6",
                     to: Route::Home {},
                     "← Back"
@@ -23,18 +22,18 @@ pub fn Detail(id: String) -> Element {
                         let tweet_url = format!("https://x.com/i/status/{}", t.id);
                         rsx! {
                             div {
-                                class: "bg-tvk-surface border border-tvk-border rounded-[10px] p-6",
+                                class: "bg-tvk-surface border border-tvk-border rounded-xl p-6",
                                 div { class: "flex items-start justify-between mb-4",
                                     div {
-                                        p { class: "font-semibold text-tvk-text",
+                                        p { class: "font-body font-semibold text-tvk-text",
                                             "@{t.author_handle}"
                                         }
                                         if let Some(name) = &t.author_name {
-                                            p { class: "text-sm text-tvk-muted", "{name}" }
+                                            p { class: "font-body text-sm text-tvk-text-secondary", "{name}" }
                                         }
                                     }
                                     a {
-                                        class: "text-xs text-tvk-gold hover:underline shrink-0",
+                                        class: "text-xs font-body text-tvk-gold hover:underline shrink-0",
                                         href: "{tweet_url}",
                                         target: "_blank",
                                         rel: "noopener noreferrer",
@@ -42,21 +41,21 @@ pub fn Detail(id: String) -> Element {
                                     }
                                 }
 
-                                p { class: "text-tvk-text leading-relaxed whitespace-pre-wrap mb-6",
+                                p { class: "font-body text-tvk-text leading-relaxed whitespace-pre-wrap mb-6",
                                     "{t.content}"
                                 }
 
                                 if let Some(translated) = &t.translated_content {
                                     div { class: "border-t border-tvk-border pt-4 mb-4",
-                                        p { class: "text-xs text-tvk-muted uppercase tracking-wider mb-2",
+                                        p { class: "text-xs font-body text-tvk-text-dim uppercase tracking-wider mb-2",
                                             "English translation"
                                         }
-                                        p { class: "text-tvk-text leading-relaxed", "{translated}" }
+                                        p { class: "font-body text-tvk-text leading-relaxed", "{translated}" }
                                     }
                                 }
 
                                 div {
-                                    class: "flex flex-wrap gap-4 text-sm text-tvk-muted \
+                                    class: "flex flex-wrap gap-4 text-sm font-body text-tvk-text-secondary \
                                             border-t border-tvk-border pt-4",
                                     if let Some(cat) = &t.category {
                                         span {
@@ -72,17 +71,17 @@ pub fn Detail(id: String) -> Element {
                                     }
                                     span {
                                         "Posted: "
-                                        span { class: "font-medium text-tvk-text", "{posted}" }
+                                        span { class: "font-mono text-tvk-text", "{posted}" }
                                     }
                                 }
                             }
                         }
                     }
                     Some(Err(e)) => rsx! {
-                        p { class: "text-red-400", "Error: {e}" }
+                        p { class: "font-body text-red-600", "Error: {e}" }
                     },
                     None => rsx! {
-                        p { class: "text-tvk-muted", "Loading…" }
+                        p { class: "font-body text-tvk-text-secondary", "Loading…" }
                     },
                 }}
             }

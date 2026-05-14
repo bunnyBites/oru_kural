@@ -19,6 +19,7 @@ pub struct AppState {
     pub filtered_category: Option<String>,
     pub search_query: String,
     pub loading: bool,
+    pub dark_mode: bool,
 }
 
 pub fn format_ts(s: &str) -> String {

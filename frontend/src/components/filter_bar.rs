@@ -11,14 +11,13 @@ pub fn FilterBar() -> Element {
     let mut ctx = use_context::<Signal<AppState>>();
 
     let all_active = ctx.read().filtered_category.is_none();
-    let all_class = pill_class(all_active);
     let search_val = ctx.read().search_query.clone();
 
     rsx! {
-        div { class: "py-4 space-y-3",
-            div { class: "flex gap-2 overflow-x-auto pb-1",
+        div { class: "space-y-3 pb-2",
+            div { class: "flex gap-2 overflow-x-auto scrollbar-hide pb-1",
                 button {
-                    class: "px-3 py-1 rounded-full border text-sm transition-all duration-150 whitespace-nowrap {all_class}",
+                    class: pill_class(all_active),
                     onclick: move |_| ctx.write().filtered_category = None,
                     "All"
                 }
@@ -29,13 +28,22 @@ pub fn FilterBar() -> Element {
                     }
                 }
             }
-            input {
-                class: "w-full max-w-xs bg-tvk-surface border border-tvk-border rounded-lg \
-                        px-3 py-2 text-sm text-tvk-text placeholder:text-tvk-dim \
-                        focus:outline-none focus:border-tvk-maroon transition-colors duration-150",
-                value: "{search_val}",
-                placeholder: "Search tweets...",
-                oninput: move |evt| ctx.write().search_query = evt.value(),
+            div { class: "relative max-w-sm",
+                span {
+                    class: "absolute left-3 top-1/2 -translate-y-1/2 \
+                            text-tvk-text-dim pointer-events-none",
+                    "⌕"
+                }
+                input {
+                    class: "w-full bg-tvk-surface border border-tvk-border rounded-lg \
+                            pl-9 pr-4 py-2 text-sm font-body text-tvk-text \
+                            placeholder:text-tvk-text-dim \
+                            focus:outline-none focus:border-tvk-maroon \
+                            transition-all duration-150",
+                    value: "{search_val}",
+                    placeholder: "Search tweets…",
+                    oninput: move |evt| ctx.write().search_query = evt.value(),
+                }
             }
         }
     }
@@ -43,9 +51,15 @@ pub fn FilterBar() -> Element {
 
 fn pill_class(active: bool) -> &'static str {
     if active {
-        "bg-tvk-maroon text-tvk-text border-transparent"
+        "bg-tvk-maroon-soft text-tvk-maroon border border-tvk-maroon \
+         font-body text-sm font-medium px-4 py-1.5 rounded-full \
+         whitespace-nowrap transition-all duration-150"
     } else {
-        "bg-transparent text-tvk-muted border-tvk-border hover:bg-tvk-surface-2 hover:border-tvk-border-hover"
+        "bg-transparent text-tvk-text-secondary border border-tvk-border \
+         font-body text-sm font-medium px-4 py-1.5 rounded-full \
+         whitespace-nowrap hover:bg-tvk-surface-2 \
+         hover:border-tvk-border-hover hover:text-tvk-text \
+         transition-all duration-150"
     }
 }
 
@@ -54,7 +68,7 @@ fn CategoryPill(label: &'static str, active: bool) -> Element {
     let mut ctx = use_context::<Signal<AppState>>();
     rsx! {
         button {
-            class: "px-3 py-1 rounded-full border text-sm transition-all duration-150 whitespace-nowrap {pill_class(active)}",
+            class: pill_class(active),
             onclick: move |_| ctx.write().filtered_category = Some(label.to_string()),
             "{label}"
         }

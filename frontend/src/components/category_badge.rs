@@ -5,8 +5,9 @@ pub fn CategoryBadge(category: String) -> Element {
     let color = category_color(&category);
     rsx! {
         span {
-            class: "inline-block px-2.5 py-0.5 rounded-full text-xs font-medium animate-badge-shine",
-            style: "color: {color}; background-color: {color}26; border: 1px solid {color}99;",
+            class: "inline-flex items-center font-body text-xs font-medium \
+                    px-2.5 py-0.5 rounded-full whitespace-nowrap shrink-0",
+            style: "color: {color}; background-color: {color}18; border: 1px solid {color}40;",
             "{category}"
         }
     }
@@ -14,14 +15,14 @@ pub fn CategoryBadge(category: String) -> Element {
 
 fn category_color(cat: &str) -> &'static str {
     match cat {
-        "Demand"         => "#C0392B",
-        "Complaint"      => "#E67E22",
-        "Public Event"   => "#8E44AD",
-        "Welcome"        => "#27AE60",
-        "Infrastructure" => "#2980B9",
-        "Health"         => "#16A085",
-        "Education"      => "#D35400",
-        "Criticism"      => "#C0392B",
-        _                => "#7F8C8D",
+        "Demand"         => "#B83227",
+        "Complaint"      => "#C96A18",
+        "Public Event"   => "#7B3AA8",
+        "Welcome"        => "#1E8A4A",
+        "Infrastructure" => "#1A6FA8",
+        "Health"         => "#0E7A68",
+        "Education"      => "#C04A00",
+        "Criticism"      => "#B83227",
+        _                => "#6B7280",
     }
 }

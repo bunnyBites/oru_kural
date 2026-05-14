@@ -22,7 +22,7 @@ pub fn StatsPanel() -> Element {
     sorted.truncate(4);
 
     rsx! {
-        div { class: "flex gap-3 overflow-x-auto pb-2 mb-6",
+        div { class: "grid grid-cols-2 sm:grid-cols-4 gap-3",
             for (index, (category, count)) in sorted.into_iter().enumerate() {
                 StatCard {
                     key: "{category}",
@@ -45,9 +45,9 @@ fn StatCard(category: String, count: usize, total: usize, index: usize) -> Eleme
     use_effect(move || {
         if count > 0 && !*animated.read() {
             animated.set(true);
-            let delay_ms = (index * 80) as u32;
+            let delay_ms = (index * 80) as u64;
             spawn(async move {
-                gloo_timers::future::sleep(std::time::Duration::from_millis(delay_ms as u64)).await;
+                gloo_timers::future::sleep(std::time::Duration::from_millis(delay_ms)).await;
                 for i in 1..=15usize {
                     gloo_timers::future::sleep(std::time::Duration::from_millis(40)).await;
                     displayed.set(count * i / 15);
@@ -56,21 +56,30 @@ fn StatCard(category: String, count: usize, total: usize, index: usize) -> Eleme
         }
     });
 
-    let width_pct = if total > 0 { (count * 100 / total).min(100) } else { 0 };
+    let pct = if total > 0 { (count * 100 / total).min(100) } else { 0 };
     let cat = category.clone();
 
     rsx! {
         div {
-            class: "bg-tvk-surface border border-tvk-border rounded-lg p-4 min-w-[140px] \
-                    cursor-pointer hover:border-tvk-border-hover transition-colors duration-150",
+            class: "bg-tvk-surface border border-tvk-border rounded-xl p-4 \
+                    cursor-pointer hover:border-tvk-border-hover \
+                    hover:shadow-sm transition-all duration-150",
             onclick: move |_| ctx.write().filtered_category = Some(cat.clone()),
-            p { class: "text-xs text-tvk-muted mb-1", "{category}" }
-            p { class: "text-2xl font-mono text-tvk-gold animate-count-glow", "{displayed}" }
-            div { class: "mt-2 w-full h-[3px] bg-tvk-border rounded-full overflow-hidden",
+
+            p { class: "text-xs font-body font-medium text-tvk-text-dim uppercase tracking-wider mb-2",
+                "{category}"
+            }
+            p { class: "font-mono text-2xl font-normal text-tvk-gold leading-none mb-3",
+                "{displayed}"
+            }
+            div { class: "w-full h-[3px] bg-tvk-border rounded-full overflow-hidden",
                 div {
                     class: "h-full bg-tvk-gold rounded-full animate-bar-fill",
-                    style: "width: {width_pct}%;",
+                    style: "width: {pct}%;",
                 }
+            }
+            p { class: "text-xs font-body text-tvk-text-dim mt-2",
+                "{pct}% of total"
             }
         }
     }
