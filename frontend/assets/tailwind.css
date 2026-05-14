@@ -292,9 +292,6 @@
   .shrink-0 {
     flex-shrink: 0;
   }
-  .cursor-default {
-    cursor: default;
-  }
   .cursor-pointer {
     cursor: pointer;
   }
