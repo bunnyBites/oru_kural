@@ -58,13 +58,17 @@ frontend/         Rust + Dioxus 0.7 (compiles to WASM)
 
 **Single source of truth for schema** — `tweets` table columns are defined once in Supabase. The Python scripts, Axum models, and Dioxus API types all mirror the same shape; keep them in sync manually if the schema changes.
 
-**sqlx runtime queries** — `backend` uses `sqlx::query_as::<_, T>(sql).bind(...)` (not the `query!` macro) so `DATABASE_URL` is not required at compile time.
+**Backend uses Supabase REST API** — no direct Postgres connection. `AppState` holds a `reqwest::Client` + `SUPABASE_URL` + `SUPABASE_ANON_KEY`. The `auth()` helper in `handlers.rs` attaches the required `apikey` and `Authorization` headers to every request. The `/api/stats` handler fetches all rows' `(category, scraped_at)` columns and aggregates in Rust — acceptable at ≤500 rows; revisit if volume grows.
 
 **Dioxus reactivity pattern** — In `home.rs`, `use_resource` reads `selected` (a `Signal`) in the *synchronous* part of its closure before the `async move` block. This is what makes the tweet list re-fetch when the category filter changes.
 
 **Tailwind v4** — CSS configuration lives in `input.css` (`@source` directive), not `tailwind.config.js`. The `@tailwindcss/cli` package is required (the `tailwindcss` package alone has no binary in v4).
 
 **tweet `id` is the X tweet ID** (text primary key) — upsert on `id` deduplicates re-runs automatically. Confidence is `float4` (0.0–1.0) from Gemini.
+
+**LLM abstraction** — All classification calls go through `scripts/llm.py:classify_tweets()`. Never call `google-generativeai` or any LLM SDK directly from `categorize_tweets.py`. To switch to OpenRouter, set `OPENROUTER_API_KEY` in `.env` — no code changes needed.
+
+**Supabase key split** — Python scripts use `SUPABASE_SERVICE_ROLE_KEY` for all writes (INSERT/UPDATE). Reads use `SUPABASE_ANON_KEY`. The Axum backend uses `DATABASE_URL` (direct Postgres) and never touches the Supabase REST API or either key.
 
 ## Environment variables
 
@@ -74,7 +78,10 @@ All vars live in `.env` (copy from `.env.example`):
 |---|---|
 | `APIFY_API_KEY` | `scrape_tweets.py` |
 | `SUPABASE_URL` | both Python scripts (REST API) |
-| `SUPABASE_ANON_KEY` | both Python scripts (REST API) |
-| `GEMINI_API_KEY` | `categorize_tweets.py` |
-| `DATABASE_URL` | `backend` (direct Postgres, must include `?sslmode=require`) |
+| `SUPABASE_ANON_KEY` | Python scripts — reads only |
+| `SUPABASE_SERVICE_ROLE_KEY` | Python scripts — writes only; never in frontend |
+| `GEMINI_API_KEY` | `llm.py` (Gemini backend) |
+| `GEMINI_MODEL` | `llm.py` — defaults to `gemini-2.5-flash` |
+| `OPENROUTER_API_KEY` | `llm.py` — optional; presence switches LLM provider |
+| `OPENROUTER_MODEL` | `llm.py` — optional; defaults to `google/gemini-2.5-flash` |
 | `PORT` | `backend` (optional, defaults to 3000) |

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
@@ -10,6 +12,14 @@ use crate::{
     models::{CategoryStat, Stats, Tweet},
     AppState,
 };
+
+const TWEET_COLS: &str =
+    "id,author_handle,author_name,content,posted_at,category,confidence,scraped_at";
+
+fn auth(req: reqwest::RequestBuilder, key: &str) -> reqwest::RequestBuilder {
+    req.header("apikey", key)
+        .header("Authorization", format!("Bearer {key}"))
+}
 
 pub async fn health() -> &'static str {
     "ok"
@@ -24,20 +34,35 @@ pub async fn list_tweets(
     State(state): State<AppState>,
     Query(params): Query<TweetsQuery>,
 ) -> Result<Json<Vec<Tweet>>, StatusCode> {
-    let tweets = sqlx::query_as::<_, Tweet>(
-        "SELECT id, author_handle, author_name, content, posted_at, category, confidence, scraped_at
-         FROM tweets
-         WHERE ($1::text IS NULL OR category = $1)
-         ORDER BY posted_at DESC
-         LIMIT 200",
+    let mut req = auth(
+        state
+            .client
+            .get(format!("{}/rest/v1/tweets", state.supabase_url)),
+        &state.supabase_anon_key,
     )
-    .bind(params.category)
-    .fetch_all(&state.db)
-    .await
-    .map_err(|e| {
-        eprintln!("list_tweets: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    .query(&[
+        ("select", TWEET_COLS),
+        ("order", "posted_at.desc"),
+        ("limit", "200"),
+    ]);
+
+    if let Some(cat) = params.category {
+        req = req.query(&[("category", format!("eq.{cat}"))]);
+    }
+
+    let tweets = req
+        .send()
+        .await
+        .map_err(|e| {
+            eprintln!("list_tweets: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .json::<Vec<Tweet>>()
+        .await
+        .map_err(|e| {
+            eprintln!("list_tweets json: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     Ok(Json(tweets))
 }
@@ -46,63 +71,78 @@ pub async fn get_tweet(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Tweet>, StatusCode> {
-    let tweet = sqlx::query_as::<_, Tweet>(
-        "SELECT id, author_handle, author_name, content, posted_at, category, confidence, scraped_at
-         FROM tweets
-         WHERE id = $1",
+    let rows = auth(
+        state
+            .client
+            .get(format!("{}/rest/v1/tweets", state.supabase_url)),
+        &state.supabase_anon_key,
     )
-    .bind(id)
-    .fetch_optional(&state.db)
+    .query(&[("select", TWEET_COLS), ("id", &format!("eq.{id}"))])
+    .send()
     .await
     .map_err(|e| {
         eprintln!("get_tweet: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?
-    .ok_or(StatusCode::NOT_FOUND)?;
-
-    Ok(Json(tweet))
-}
-
-pub async fn get_stats(State(state): State<AppState>) -> Result<Json<Stats>, StatusCode> {
-    let total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tweets")
-        .fetch_one(&state.db)
-        .await
-        .map_err(|e| {
-            eprintln!("get_stats total: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
-
-    let uncategorized =
-        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM tweets WHERE category IS NULL")
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| {
-                eprintln!("get_stats uncategorized: {e}");
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
-
-    let categories = sqlx::query_as::<_, CategoryStat>(
-        "SELECT category, COUNT(*) AS count
-         FROM tweets
-         WHERE category IS NOT NULL
-         GROUP BY category
-         ORDER BY count DESC",
-    )
-    .fetch_all(&state.db)
+    .json::<Vec<Tweet>>()
     .await
     .map_err(|e| {
-        eprintln!("get_stats categories: {e}");
+        eprintln!("get_tweet json: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    let last_scraped_at =
-        sqlx::query_scalar::<_, Option<DateTime<Utc>>>("SELECT MAX(scraped_at) FROM tweets")
-            .fetch_one(&state.db)
-            .await
-            .map_err(|e| {
-                eprintln!("get_stats last_scraped_at: {e}");
-                StatusCode::INTERNAL_SERVER_ERROR
-            })?;
+    rows.into_iter().next().ok_or(StatusCode::NOT_FOUND).map(Json)
+}
+
+#[derive(Deserialize)]
+struct TweetMeta {
+    category: Option<String>,
+    scraped_at: DateTime<Utc>,
+}
+
+pub async fn get_stats(State(state): State<AppState>) -> Result<Json<Stats>, StatusCode> {
+    // One lightweight query — aggregate entirely in Rust.
+    // Fine at current scale (≤500 rows, two small columns).
+    let metas = auth(
+        state
+            .client
+            .get(format!("{}/rest/v1/tweets", state.supabase_url)),
+        &state.supabase_anon_key,
+    )
+    .query(&[("select", "category,scraped_at")])
+    .send()
+    .await
+    .map_err(|e| {
+        eprintln!("get_stats: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?
+    .json::<Vec<TweetMeta>>()
+    .await
+    .map_err(|e| {
+        eprintln!("get_stats json: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let total = metas.len() as i64;
+    let uncategorized = metas.iter().filter(|m| m.category.is_none()).count() as i64;
+
+    let mut counts: HashMap<String, i64> = HashMap::new();
+    let mut last_scraped_at: Option<DateTime<Utc>> = None;
+
+    for meta in &metas {
+        if let Some(cat) = &meta.category {
+            *counts.entry(cat.clone()).or_insert(0) += 1;
+        }
+        if last_scraped_at.map_or(true, |ts| meta.scraped_at > ts) {
+            last_scraped_at = Some(meta.scraped_at);
+        }
+    }
+
+    let mut categories: Vec<CategoryStat> = counts
+        .into_iter()
+        .map(|(category, count)| CategoryStat { category, count })
+        .collect();
+    categories.sort_by(|a, b| b.count.cmp(&a.count));
 
     Ok(Json(Stats {
         total,

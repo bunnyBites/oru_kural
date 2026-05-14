@@ -20,7 +20,7 @@ load_dotenv()
 
 APIFY_API_KEY: str = os.environ["APIFY_API_KEY"]
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
-SUPABASE_ANON_KEY: str = os.environ["SUPABASE_ANON_KEY"]
+SUPABASE_SERVICE_ROLE_KEY: str = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 ACTOR_ID = "apidojo/tweet-scraper"
 SEARCH_QUERY = "@CMofTamilNadu"
@@ -112,8 +112,8 @@ async def upsert_batch(client: httpx.AsyncClient, rows: list[dict[str, Any]]) ->
         f"{SUPABASE_URL}/rest/v1/tweets",
         json=rows,
         headers={
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": f"Bearer {SUPABASE_ANON_KEY}",
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
             "Content-Type": "application/json",
             "Prefer": "resolution=merge-duplicates",
         },

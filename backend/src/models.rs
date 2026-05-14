@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Tweet {
     pub id: String,
     pub author_handle: String,
@@ -13,7 +13,7 @@ pub struct Tweet {
     pub scraped_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize)]
 pub struct CategoryStat {
     pub category: String,
     pub count: i64,

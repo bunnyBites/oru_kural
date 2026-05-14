@@ -2,31 +2,35 @@ mod handlers;
 mod models;
 
 use axum::{Router, routing::get};
-use sqlx::postgres::PgPoolOptions;
 use tower_http::cors::{Any, CorsLayer};
 
 #[derive(Clone)]
 pub struct AppState {
-    pub db: sqlx::PgPool,
+    pub client: reqwest::Client,
+    pub supabase_url: String,
+    pub supabase_anon_key: String,
 }
 
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
 
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let supabase_url = std::env::var("SUPABASE_URL")
+        .expect("SUPABASE_URL must be set")
+        .trim_end_matches('/')
+        .to_string();
+    let supabase_anon_key =
+        std::env::var("SUPABASE_ANON_KEY").expect("SUPABASE_ANON_KEY must be set");
     let port: u16 = std::env::var("PORT")
         .unwrap_or_else(|_| "3000".to_string())
         .parse()
         .expect("PORT must be a valid number");
 
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
-        .await
-        .expect("failed to connect to database");
-
-    let state = AppState { db: pool };
+    let state = AppState {
+        client: reqwest::Client::new(),
+        supabase_url,
+        supabase_anon_key,
+    };
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
