@@ -29,10 +29,14 @@ Oru Kural scrapes public tweets mentioning the Tamil Nadu CM's official X handle
                          └──► update category + confidence
                                             │
                                             ▼
-                                  Axum REST API  (Phase 2)
+                               Axum REST API  :3000
+                               GET /api/tweets[?category=]
+                               GET /api/tweets/:id
+                               GET /api/stats
                                             │
                                             ▼
-                                  Dioxus Dashboard  (Phase 3)
+                            Dioxus 0.7 Web Dashboard  :8080
+                            category pills · tweet grid · detail view
 ```
 
 ---
@@ -97,6 +101,28 @@ python scrape_tweets.py --dry-run sample_data.json
 python categorize_tweets.py
 ```
 
+### 6. Run the backend
+
+```bash
+cd backend
+# Add DATABASE_URL and PORT to .env first (see .env.example)
+cargo run
+# → http://localhost:3000
+```
+
+### 7. Run the frontend
+
+```bash
+# Terminal A — compile Tailwind (run once, then watch)
+cd frontend
+npx tailwindcss -i input.css -o assets/tailwind.css --watch
+
+# Terminal B — serve the Dioxus app
+cd frontend
+dx serve
+# → http://localhost:8080
+```
+
 ---
 
 ## Phase roadmap
@@ -104,6 +130,6 @@ python categorize_tweets.py
 | Phase | Status | Description |
 |-------|--------|-------------|
 | **1 — Data pipeline** | ✅ Done | Apify scraper → Supabase, Gemini categorization |
-| **2 — Backend API** | 🔜 Next | Rust + Axum REST API over the tweets table |
-| **3 — Dashboard** | 🔜 | Rust + Dioxus web frontend with category filters and charts |
-| **4 — Automation** | 🔜 | Scheduled scrape + categorize (cron / Supabase Edge Functions) |
+| **2 — Backend API** | ✅ Done | Rust + Axum REST API (tweets list/filter/detail + stats) |
+| **3 — Dashboard** | ✅ Done | Rust + Dioxus 0.7 web frontend with category pills and detail view |
+| **4 — Automation** | 🔜 Next | Scheduled scrape + categorize (cron / Supabase Edge Functions) |
