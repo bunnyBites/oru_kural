@@ -1,5 +1,5 @@
 {
-  "outputDirectory": "frontend/dist",
+  "outputDirectory": "frontend/target/dx/oru-kural-frontend/release/web/public",
   "framework": null,
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }

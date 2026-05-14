@@ -72,3 +72,4 @@ frontend/dist/
 # Test data
 scripts/sample_*.json
 scripts/last_fetch.json
+.vercel
