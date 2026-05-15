@@ -1,50 +1,52 @@
 use dioxus::prelude::*;
-use crate::{api::fetch_tweets, components::{FilterBar, Header, StatsPanel, TweetGrid}, models::AppState};
+
+use crate::models::Tab;
+use super::header::Header;
+use super::issues_board::IssuesBoard;
+use super::events_feed::EventsFeed;
+use super::stats_panel::StatsPanel;
+
+#[derive(Clone, Copy)]
+pub struct AppCtx {
+    pub active_tab: Signal<Tab>,
+    pub dark_mode: Signal<bool>,
+}
 
 #[component]
 pub fn AppShell() -> Element {
-    let mut state = use_context_provider(|| Signal::new(AppState {
-        tweets: vec![],
-        filtered_category: None,
-        search_query: String::new(),
-        loading: true,
-        dark_mode: false,
-    }));
+    let active_tab = use_signal(|| Tab::Issues);
+    let dark_mode = use_signal(|| false);
 
-    // Restore dark mode preference from localStorage on mount
+    use_context_provider(|| AppCtx { active_tab, dark_mode });
+
     use_effect(move || {
+        let mut dm = dark_mode;
         spawn(async move {
-            let mut ev = document::eval("
-                const saved = localStorage.getItem('theme');
-                const isDark = saved === 'dark';
-                if (isDark) document.documentElement.setAttribute('data-theme','dark');
-                dioxus.send(isDark);
-            ");
+            let mut ev = document::eval(
+                "const s = localStorage.getItem('theme'); \
+                 const d = s === 'dark'; \
+                 if (d) document.documentElement.setAttribute('data-theme','dark'); \
+                 dioxus.send(d);",
+            );
             if let Ok(dark) = ev.recv::<bool>().await {
                 if dark {
-                    state.write().dark_mode = true;
+                    dm.set(true);
                 }
             }
         });
     });
 
-    use_effect(move || {
-        spawn(async move {
-            match fetch_tweets(None).await {
-                Ok(tweets) => state.write().tweets = tweets,
-                Err(e) => eprintln!("fetch error: {e}"),
-            }
-            state.write().loading = false;
-        });
-    });
+    let tab = active_tab.read().clone();
 
     rsx! {
         div { class: "min-h-screen bg-tvk-bg transition-colors duration-300",
             Header {}
-            main { class: "max-w-[1280px] mx-auto px-4 sm:px-6 py-8 space-y-6",
-                FilterBar {}
-                StatsPanel {}
-                TweetGrid {}
+            main { class: "max-w-[1280px] mx-auto px-4 sm:px-6 py-8",
+                match tab {
+                    Tab::Issues => rsx! { IssuesBoard {} },
+                    Tab::Events => rsx! { EventsFeed {} },
+                    Tab::Stats  => rsx! { StatsPanel {} },
+                }
             }
         }
     }

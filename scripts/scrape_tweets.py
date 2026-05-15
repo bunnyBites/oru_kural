@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MAX_PAGES = 10
+MAX_PAGES: int = int(os.environ.get("X_MAX_PAGES", "3"))
 MIN_LIKES = 50
 MIN_REPLIES_WITH_TAG = 10
 UPSERT_BATCH_SIZE = 100
@@ -366,6 +366,8 @@ async def main() -> None:
 
         total_upserted = await upsert_all(supabase_url, service_key, rows)
         print(f"Done. Total fetched: {total_fetched}. Total upserted: {total_upserted}. Skipped (low traction): {skipped_count}.")
+        estimated_cost = total_fetched * 0.005
+        print(f"Estimated X API cost this run: ${estimated_cost:.2f}")
         await _complete(total_fetched, total_upserted, page_count)
 
     except Exception as e:

@@ -1,26 +1,19 @@
 mod api;
 mod components;
 mod models;
-mod views;
 
 use dioxus::prelude::*;
-use views::{Detail, Home};
 
-#[derive(Clone, Routable, PartialEq)]
-enum Route {
-    #[route("/")]
-    Home {},
-    #[route("/tweets/:id")]
-    Detail { id: String },
-}
+use components::app_shell::AppShell;
 
 fn main() {
     dioxus::launch(App);
 }
 
+#[allow(non_snake_case)]
 fn App() -> Element {
     rsx! {
         document::Stylesheet { href: asset!("/assets/tailwind.css") }
-        Router::<Route> {}
+        AppShell {}
     }
 }

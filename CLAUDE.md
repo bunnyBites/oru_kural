@@ -38,37 +38,66 @@ dx serve           # serves at http://localhost:8080
 
 ```
 scripts/          Python async pipeline (httpx, no requests library)
-  scrape_tweets.py      Apify → map_item() → Supabase upsert (batches of 100)
-  categorize_tweets.py  Supabase fetch → Gemini Flash 2.0 → Supabase patch (batches of 40)
+  scrape_tweets.py      X API v2 → signals table (MAX_PAGES via X_MAX_PAGES env, default 3)
+  scrape_reddit.py      Reddit JSON → signals table
+  scrape_cm_events.py   RSS → cm_events table
+  categorize_signals.py Gemini categorization of all signals
+  cluster_issues.py     Gemini clustering → issues table
+  link_events_to_issues.py  Gemini links cm_events ↔ issues
 
-backend/          Rust + Axum REST API
-  src/models.rs         Tweet, CategoryStat, Stats (sqlx::FromRow + serde::Serialize)
-  src/handlers.rs       Four route handlers; all use sqlx runtime queries (no macros)
-  src/main.rs           AppState{db: PgPool}, router, CORS
+backend/          Rust + Axum REST API (Supabase REST proxy)
+  src/models.rs         Signal, Issue, CmEvent, CategoryStat + response envelopes
+  src/handlers.rs       6 handlers: health, list_issues, get_issue, list_signals, list_events, get_stats
+  src/main.rs           AppState{client, supabase_url, supabase_key}, router, CORS via FRONTEND_ORIGIN
+
+  Routes (no /api/ prefix):
+    GET /health          → { status, service }
+    GET /issues          → PagedResponse<Issue>  (status, category, location, limit, cursor)
+    GET /issues/:id      → { issue, signals, linked_event }
+    GET /signals         → PagedResponse<Signal> (source, category, q, limit, cursor)
+    GET /events          → PagedResponse<CmEvent>(category, linked, limit, cursor)
+    GET /stats           → { data: Vec<CategoryStat> }
 
 frontend/         Rust + Dioxus 0.7 (compiles to WASM)
-  src/api.rs            Types (Tweet, Stats) + reqwest fetch functions; BACKEND = localhost:3000
-  src/views/home.rs     Stats bar, category pills (use_signal), tweet grid (use_resource)
-  src/views/detail.rs   Single tweet view with link back to X
-  src/main.rs           Route enum (Routable), App mounts stylesheet + Router
+  src/api.rs            fetch_issues, fetch_issue_detail, fetch_events, fetch_stats
+                        API_BASE from option_env!("API_BASE_URL"), default localhost:8080
+  src/models.rs         Signal, Issue, CmEvent, CategoryStat, Tab, format_date()
+  src/components/
+    app_shell.rs        Root — provides AppCtx{active_tab, dark_mode} via context
+    header.rs           Brand + tab nav + dark mode toggle
+    issues_board.rs     Tab 1 — issues grid with filters, pagination, detail panel
+    filter_bar.rs       Status + category pills + search input
+    issue_card.rs       Issue card (3-section flex layout, animate-card-enter)
+    issue_detail.rs     Expanded view — signals + linked CM event
+    events_feed.rs      Tab 2 — CM events list with linked-only filter
+    event_card.rs       Event card
+    stats_panel.rs      Tab 3 — category breakdown fetched from /stats
+    signal_card.rs      Signal card (used inside issue_detail)
+    skeleton_card.rs    Shimmer loading placeholder (3-section layout)
+    status_badge.rs     Status pill with inline style colors
+    category_badge.rs   Category pill with inline style colors
+    source_badge.rs     X / Reddit source indicator
   assets/tailwind.css   Generated — never edit by hand
+  input.css             Tailwind v4 config: @import, @theme, @layer base, animations
 ```
 
 ## Key design decisions
 
-**Single source of truth for schema** — `tweets` table columns are defined once in Supabase. The Python scripts, Axum models, and Dioxus API types all mirror the same shape; keep them in sync manually if the schema changes.
+**Schema tables** — `signals` (unified X + Reddit), `issues` (clustered demands), `cm_events` (CM press releases), `signal_issue_map`, `category_stats`, `scrape_runs`. Never re-create these migrations (001–006 already applied).
 
-**Backend uses Supabase REST API** — no direct Postgres connection. `AppState` holds a `reqwest::Client` + `SUPABASE_URL` + `SUPABASE_ANON_KEY`. The `auth()` helper in `handlers.rs` attaches the required `apikey` and `Authorization` headers to every request. The `/api/stats` handler fetches all rows' `(category, scraped_at)` columns and aggregates in Rust — acceptable at ≤500 rows; revisit if volume grows.
+**Backend is a thin Supabase proxy** — no direct Postgres connection, no business logic. `AppState` holds `reqwest::Client` + bare Supabase project URL + anon key. The `auth()` helper attaches `apikey` + `Authorization` headers to every PostgREST request. All pagination is keyset (no OFFSET, no COUNT(*)).
 
-**Dioxus reactivity pattern** — In `home.rs`, `use_resource` reads `selected` (a `Signal`) in the *synchronous* part of its closure before the `async move` block. This is what makes the tweet list re-fetch when the category filter changes.
+**Dioxus reactivity pattern** — `use_effect` reads filter signals synchronously before spawning async fetch. Reading signals inside `use_effect` closure body creates subscriptions; reading inside `spawn(async move {...})` does not. This makes filter changes auto-trigger refetches.
 
-**Tailwind v4** — CSS configuration lives in `input.css` (`@source` directive), not `tailwind.config.js`. The `@tailwindcss/cli` package is required (the `tailwindcss` package alone has no binary in v4).
+**Dark mode** — toggled via `document.documentElement.setAttribute('data-theme','dark')`, persisted in `localStorage`. AppCtx provides `dark_mode: Signal<bool>` via context; Header reads it and applies the JS via `document::eval()`.
 
-**tweet `id` is the X tweet ID** (text primary key) — upsert on `id` deduplicates re-runs automatically. Confidence is `float4` (0.0–1.0) from Gemini.
+**Global state** — `AppCtx { active_tab, dark_mode }` provided at AppShell via `use_context_provider`. Each tab (IssuesBoard, EventsFeed, StatsPanel) owns its own data signals locally — no prop drilling of data.
 
-**LLM abstraction** — All classification calls go through `scripts/llm.py:classify_tweets()`. Never call `google-generativeai` or any LLM SDK directly from `categorize_tweets.py`. To switch to OpenRouter, set `OPENROUTER_API_KEY` in `.env` — no code changes needed.
+**Tailwind v4** — CSS config in `input.css` (`@import "tailwindcss"` first line, `@source`, `@theme` for custom tokens). No `tailwind.config.js`. All status/category/brand colors use inline `style=` in components (dynamic classes not purged at build time).
 
-**Supabase key split** — Python scripts use `SUPABASE_SERVICE_ROLE_KEY` for all writes (INSERT/UPDATE). Reads use `SUPABASE_ANON_KEY`. The Axum backend uses `DATABASE_URL` (direct Postgres) and never touches the Supabase REST API or either key.
+**LLM abstraction** — All classification calls go through `scripts/llm.py:classify_tweets()`. Never call `google-generativeai` directly. Set `OPENROUTER_API_KEY` to switch providers without code changes.
+
+**Supabase key split** — Python scripts use `SUPABASE_SERVICE_ROLE_KEY` for writes, `SUPABASE_ANON_KEY` for reads. Axum backend uses only `SUPABASE_ANON_KEY` (read-only).
 
 ## Environment variables
 
@@ -84,4 +113,6 @@ All vars live in `.env` (copy from `.env.example`):
 | `GEMINI_MODEL` | `llm.py` — defaults to `gemini-2.5-flash` |
 | `OPENROUTER_API_KEY` | `llm.py` — optional; presence switches LLM provider |
 | `OPENROUTER_MODEL` | `llm.py` — optional; defaults to `google/gemini-2.5-flash` |
-| `PORT` | `backend` (optional, defaults to 3000) |
+| `PORT` | `backend` (optional, defaults to 8080) |
+| `FRONTEND_ORIGIN` | `backend` — CORS allowed origin; omit to use permissive CORS in dev |
+| `API_BASE_URL` | `frontend` — compile-time backend URL; defaults to `http://localhost:8080` |
