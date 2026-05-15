@@ -158,7 +158,36 @@ def has_engagement(tweet: dict[str, Any]) -> bool:
     return likes >= MIN_LIKES or (replies >= MIN_REPLIES_WITH_TAG and "@CMOTamilnadu" in text)
 
 
-async def scrape_tweets(bearer_token: str) -> tuple[list[dict[str, Any]], int, int]:
+async def fetch_latest_x_signal_id(
+    client: httpx.AsyncClient,
+    supabase_url: str,
+    service_key: str,
+) -> str | None:
+    """Return the most recent X tweet ID stored in signals, to use as since_id next run."""
+    try:
+        resp = await client.get(
+            f"{supabase_url}/rest/v1/signals",
+            params={
+                "source": "eq.x",
+                "select": "id,posted_at",
+                "order": "posted_at.desc",
+                "limit": "1",
+            },
+            headers={
+                "apikey": service_key,
+                "Authorization": f"Bearer {service_key}",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        return rows[0]["id"] if rows else None
+    except Exception as exc:
+        print(f"warning: could not fetch latest signal ID (will do full fetch): {exc}")
+        return None
+
+
+async def scrape_tweets(bearer_token: str, since_id: str | None = None) -> tuple[list[dict[str, Any]], int, int]:
     """Returns (rows, page_count, skipped_count)."""
     params: dict[str, Any] = {
         "query": "@CMOTamilnadu -is:retweet -is:reply (lang:ta OR lang:en)",
@@ -167,6 +196,12 @@ async def scrape_tweets(bearer_token: str) -> tuple[list[dict[str, Any]], int, i
         "expansions": "author_id",
         "user.fields": "username,name",
     }
+
+    if since_id:
+        params["since_id"] = since_id
+        print(f"Incremental fetch: only tweets newer than ID {since_id}")
+    else:
+        print("Full fetch: no prior signals found — reading up to 7 days back")
 
     all_rows: list[dict[str, Any]] = []
     page_count = 0
@@ -304,7 +339,9 @@ async def main() -> None:
             print(f"Loaded {len(rows)} rows.")
         else:
             bearer_token: str = os.environ["X_BEARER_TOKEN"]
-            rows, page_count, skipped_count = await scrape_tweets(bearer_token)
+            async with httpx.AsyncClient() as lookup_client:
+                since_id = await fetch_latest_x_signal_id(lookup_client, supabase_url, service_key)
+            rows, page_count, skipped_count = await scrape_tweets(bearer_token, since_id=since_id)
             # Save before upserting so data is not lost if upsert fails
             with open(CACHE_FILE, "w", encoding="utf-8") as fh:
                 json.dump(rows, fh, ensure_ascii=False, indent=2)

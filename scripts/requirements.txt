@@ -2,4 +2,3 @@ httpx[asyncio]
 python-dotenv
 google-genai
 feedparser
-praw
