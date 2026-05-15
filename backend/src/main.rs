@@ -43,6 +43,9 @@ async fn main() {
         .route("/health", get(handlers::health))
         .route("/api/tweets", get(handlers::list_tweets))
         .route("/api/tweets/:id", get(handlers::get_tweet))
+        .route("/api/issues", get(handlers::list_issues))
+        .route("/api/issues/:id", get(handlers::get_issue))
+        .route("/api/events", get(handlers::list_events))
         .route("/api/stats", get(handlers::get_stats))
         .layer(cors)
         .with_state(state);
