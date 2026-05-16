@@ -50,11 +50,13 @@ pub fn EventsFeed() -> Element {
             div { class: "flex gap-2 mb-4",
                 button {
                     class: if !lo { active_pill } else { inactive_pill },
+                    "aria-label": "Show all CM events",
                     onclick: move |_| linked_only.set(false),
                     "All"
                 }
                 button {
                     class: if lo { active_pill } else { inactive_pill },
+                    "aria-label": "Show only CM events linked to issues",
                     onclick: move |_| linked_only.set(true),
                     "Linked to issues"
                 }
@@ -114,6 +116,7 @@ pub fn EventsFeed() -> Element {
                         class: "font-body text-sm text-tvk-text-secondary border border-tvk-border \
                                 rounded-lg px-6 py-2 hover:border-tvk-border-hover \
                                 transition-all duration-150",
+                        "aria-label": "Load more CM events",
                         onclick: move |_| {
                             let cursor = next_cursor.read().clone();
                             let lo_val = *linked_only.read();

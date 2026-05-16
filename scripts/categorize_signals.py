@@ -10,7 +10,7 @@ import json
 import os
 import random
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BATCH_SIZE = 40
+DEDUP_THRESHOLD = 0.85
 
 _CATEGORIZE_PROMPT = """\
 You are processing Tamil Nadu public posts mentioning the Chief Minister (@CMOTamilnadu).
@@ -57,6 +58,16 @@ def _supa_headers(key: str) -> dict[str, str]:
     }
 
 
+def _word_set(text: str) -> set[str]:
+    return set(text.lower().split())
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
 async def fetch_uncategorized_signals(
     client: httpx.AsyncClient,
     anon_key: str,
@@ -67,6 +78,7 @@ async def fetch_uncategorized_signals(
         params={
             "select": "id,content,source",
             "category": "is.null",
+            "duplicate_of": "is.null",
             "order": "scraped_at.asc",
             "limit": "500",
         },
@@ -78,6 +90,24 @@ async def fetch_uncategorized_signals(
     )
     resp.raise_for_status()
     return resp.json()
+
+
+async def mark_duplicates(
+    client: httpx.AsyncClient,
+    service_key: str,
+    supabase_url: str,
+    duplicate_rows: list[dict[str, str]],
+) -> None:
+    for row in duplicate_rows:
+        resp = await client.patch(
+            f"{supabase_url}/rest/v1/signals",
+            params={"id": f"eq.{row['id']}"},
+            json={"duplicate_of": row["duplicate_of"]},
+            headers={**_supa_headers(service_key), "Prefer": "return=minimal"},
+            timeout=15,
+        )
+        if not resp.is_success:
+            print(f"  warning: failed to mark duplicate {row['id']}: {resp.text}")
 
 
 async def upsert_classified(
@@ -174,17 +204,43 @@ async def main() -> None:
                     await tc.patch(
                         f"{supabase_url}/rest/v1/scrape_runs",
                         params={"id": f"eq.{run_id}"},
-                        json={"status": "completed", "completed_at": datetime.utcnow().isoformat() + "Z",
+                        json={"status": "completed", "completed_at": datetime.now(timezone.utc).isoformat(),
                               "tweets_fetched": 0, "tweets_upserted": 0},
                         headers={**_supa_headers(service_key), "Prefer": "return=minimal"},
                         timeout=15,
                     )
             return
 
+        # Deduplicate within the batch using Jaccard similarity on word sets.
+        # Signals above the threshold are flagged in-DB and excluded from Gemini.
+        reference_sets: list[tuple[str, set[str]]] = []
+        unique_signals: list[dict[str, Any]] = []
+        duplicate_rows: list[dict[str, str]] = []
+
+        for signal in signals:
+            ws = _word_set(signal["content"])
+            best_sim = 0.0
+            best_ref_id: str | None = None
+            for ref_id, ref_ws in reference_sets:
+                sim = _jaccard(ws, ref_ws)
+                if sim > best_sim:
+                    best_sim = sim
+                    best_ref_id = ref_id
+            if best_sim >= DEDUP_THRESHOLD and best_ref_id:
+                duplicate_rows.append({"id": signal["id"], "duplicate_of": best_ref_id})
+            else:
+                reference_sets.append((signal["id"], ws))
+                unique_signals.append(signal)
+
+        if duplicate_rows:
+            async with httpx.AsyncClient() as dup_client:
+                await mark_duplicates(dup_client, service_key, supabase_url, duplicate_rows)
+            print(f"Marked {len(duplicate_rows)} near-duplicate signals (threshold={DEDUP_THRESHOLD}).")
+
         rule_classified: list[dict[str, Any]] = []
         gemini_batch: list[dict[str, Any]] = []
 
-        for signal in signals:
+        for signal in unique_signals:
             result = classify_by_rules(signal["id"], signal["content"])
             if result:
                 rule_classified.append(result)
@@ -245,7 +301,7 @@ async def main() -> None:
                         params={"id": f"eq.{run_id}"},
                         json={
                             "status": "completed",
-                            "completed_at": datetime.utcnow().isoformat() + "Z",
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
                             "tweets_fetched": len(signals),
                             "tweets_upserted": total_upserted,
                         },
@@ -264,7 +320,7 @@ async def main() -> None:
                         params={"id": f"eq.{run_id}"},
                         json={
                             "status": "failed",
-                            "completed_at": datetime.utcnow().isoformat() + "Z",
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
                             "error_message": str(e),
                         },
                         headers={**_supa_headers(service_key), "Prefer": "return=minimal"},

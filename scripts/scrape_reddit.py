@@ -18,7 +18,7 @@
 #   )
 #   def _fetch() -> list[dict]:
 #       subreddit_obj = reddit.subreddit(subreddit)
-#       cutoff = datetime.utcnow().timestamp() - (lookback_days * 86400)
+#       cutoff = datetime.now(timezone.utc).timestamp() - (lookback_days * 86400)
 #       posts = []
 #       for post in subreddit_obj.search(SEARCH_QUERY, sort="new", limit=100):
 #           if post.created_utc < cutoff: continue
@@ -36,7 +36,8 @@ Usage:
 
 import asyncio
 import os
-from datetime import datetime
+import sys
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -95,7 +96,7 @@ async def complete_scrape_run(
         params={"id": f"eq.{run_id}"},
         json={
             "status": "completed",
-            "completed_at": datetime.utcnow().isoformat() + "Z",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
             "tweets_fetched": items_fetched,
             "tweets_upserted": items_processed,
         },
@@ -122,7 +123,7 @@ async def fail_scrape_run(
         params={"id": f"eq.{run_id}"},
         json={
             "status": "failed",
-            "completed_at": datetime.utcnow().isoformat() + "Z",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
             "error_message": error,
         },
         headers={
@@ -150,7 +151,7 @@ async def fetch_subreddit_posts(
 
     Returns a list of raw Reddit post dicts (Reddit's 'data' field per child).
     """
-    cutoff_ts = datetime.utcnow().timestamp() - (lookback_days * 86400)
+    cutoff_ts = datetime.now(timezone.utc).timestamp() - (lookback_days * 86400)
     base_url = f"https://www.reddit.com/r/{subreddit}/search.json"
     headers = {
         "User-Agent": "oru-kural/1.0 (civic research, non-commercial, read-only)",
@@ -255,7 +256,7 @@ def map_post_to_signal(post: dict[str, Any], subreddit: str) -> dict[str, Any]:
             "num_comments": post.get("num_comments", 0),
             "upvote_ratio": post.get("upvote_ratio", 0.0),
         },
-        "scraped_at": datetime.utcnow().isoformat() + "Z",
+        "scraped_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -315,6 +316,10 @@ async def main() -> None:
                 items_fetched=len(all_signals),
                 items_processed=total_upserted,
             )
+
+            if total_upserted == 0:
+                print("ERROR: 0 signals upserted from Reddit — failing the step.")
+                sys.exit(1)
 
         except Exception as e:
             await fail_scrape_run(client, supabase_url, anon_key, run_id, error=str(e))

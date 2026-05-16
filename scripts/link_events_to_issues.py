@@ -156,7 +156,7 @@ async def apply_match(client: httpx.AsyncClient, match: dict[str, Any]) -> None:
             "status": status,
             "linked_event_id": event_id,
             "resolution_note": note,
-            "last_updated_at": datetime.utcnow().isoformat() + "Z",
+            "last_updated_at": datetime.now(timezone.utc).isoformat(),
         },
         headers={**_supa_headers(SUPABASE_SERVICE_ROLE_KEY), "Prefer": "return=minimal"},
         timeout=15,
@@ -231,7 +231,7 @@ async def main() -> None:
                         params={"id": f"eq.{run_id}"},
                         json={
                             "status": "completed",
-                            "completed_at": datetime.utcnow().isoformat() + "Z",
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
                             "tweets_fetched": len(events),
                             "tweets_upserted": len(confident),
                         },
@@ -250,7 +250,7 @@ async def main() -> None:
                         params={"id": f"eq.{run_id}"},
                         json={
                             "status": "failed",
-                            "completed_at": datetime.utcnow().isoformat() + "Z",
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
                             "error_message": str(e),
                         },
                         headers={**_supa_headers(service_key), "Prefer": "return=minimal"},

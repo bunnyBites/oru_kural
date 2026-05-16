@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use axum::{Router, routing::get};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 
 #[derive(Clone)]
@@ -69,6 +70,7 @@ async fn main() {
         .route("/stats", get(handlers::get_stats))
         .layer(GovernorLayer { config: governor_conf })
         .layer(cors)
+        .layer(CompressionLayer::new())
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))

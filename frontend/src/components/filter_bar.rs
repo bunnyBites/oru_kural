@@ -46,6 +46,7 @@ pub fn FilterBar(
             div { class: "flex gap-2 overflow-x-auto scrollbar-hide pb-1",
                 button {
                     class: pill_cls(cur_status.is_none()),
+                    "aria-label": "Show all statuses",
                     onclick: move |_| { status_filter.set(None); },
                     "All"
                 }
@@ -57,6 +58,7 @@ pub fn FilterBar(
                             button {
                                 key: "{val}",
                                 class: pill_cls(is_active),
+                                "aria-label": "Filter by status: {label}",
                                 onclick: move |_| { status_filter.set(Some(v.clone())); },
                                 "{label}"
                             }
@@ -68,6 +70,7 @@ pub fn FilterBar(
             div { class: "flex gap-2 overflow-x-auto scrollbar-hide pb-1",
                 button {
                     class: pill_cls(cur_category.is_none()),
+                    "aria-label": "Show all categories",
                     onclick: move |_| { category_filter.set(None); },
                     "All"
                 }
@@ -79,6 +82,7 @@ pub fn FilterBar(
                             button {
                                 key: "{cat}",
                                 class: pill_cls(is_active),
+                                "aria-label": "Filter by category: {cat}",
                                 onclick: move |_| { category_filter.set(Some(c.clone())); },
                                 "{cat}"
                             }

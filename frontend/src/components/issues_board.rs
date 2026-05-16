@@ -139,6 +139,7 @@ pub fn IssuesBoard() -> Element {
                         class: "font-body text-sm text-tvk-text-secondary border border-tvk-border \
                                 rounded-lg px-6 py-2 hover:border-tvk-border-hover \
                                 transition-all duration-150",
+                        "aria-label": "Load more issues",
                         onclick: move |_| {
                             let cursor = next_cursor.read().clone();
                             let status = status_filter.read().clone();
