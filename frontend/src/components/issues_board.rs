@@ -35,12 +35,14 @@ pub fn IssuesBoard() -> Element {
     use_effect(move || {
         let status = status_filter.read().clone();
         let category = category_filter.read().clone();
+        let q = search_query.read().clone();
+        let q_opt = if q.is_empty() { None } else { Some(q) };
 
         spawn(async move {
             loading.set(true);
             error.set(None);
             selected_issue_id.set(None);
-            match crate::api::fetch_issues(status, category, None).await {
+            match crate::api::fetch_issues(status, category, q_opt, None).await {
                 Ok((data, cursor)) => {
                     has_more.set(cursor.is_some());
                     next_cursor.set(cursor);
@@ -54,21 +56,6 @@ pub fn IssuesBoard() -> Element {
             loading.set(false);
         });
     });
-
-    let search = search_query.read().to_lowercase();
-    let all_issues = issues.read();
-    let filtered: Vec<Issue> = all_issues
-        .iter()
-        .filter(|i| {
-            if search.is_empty() {
-                return true;
-            }
-            i.title.to_lowercase().contains(&search)
-                || i.summary.as_deref().unwrap_or("").to_lowercase().contains(&search)
-        })
-        .cloned()
-        .collect();
-    drop(all_issues);
 
     let is_loading = *loading.read();
     let has_more_val = *has_more.read();
@@ -88,10 +75,12 @@ pub fn IssuesBoard() -> Element {
                     onclick: move |_| {
                         let status = status_filter.read().clone();
                         let category = category_filter.read().clone();
+                        let q = search_query.read().clone();
+                        let q_opt = if q.is_empty() { None } else { Some(q) };
                         error.set(None);
                         loading.set(true);
                         spawn(async move {
-                            match crate::api::fetch_issues(status, category, None).await {
+                            match crate::api::fetch_issues(status, category, q_opt, None).await {
                                 Ok((data, cursor)) => {
                                     has_more.set(cursor.is_some());
                                     next_cursor.set(cursor);
@@ -116,13 +105,13 @@ pub fn IssuesBoard() -> Element {
                         SkeletonCard {}
                     }
                 }
-            } else if filtered.is_empty() {
+            } else if issues.read().is_empty() {
                 div { class: "py-20 text-center",
                     p { class: "font-body text-tvk-text-dim text-sm", "No issues found." }
                 }
             } else {
                 div { class: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4",
-                    for (i, issue) in filtered.iter().enumerate() {
+                    for (i, issue) in issues.read().iter().enumerate() {
                         IssueCard {
                             key: "{issue.id}",
                             issue: issue.clone(),
@@ -144,8 +133,10 @@ pub fn IssuesBoard() -> Element {
                             let cursor = next_cursor.read().clone();
                             let status = status_filter.read().clone();
                             let category = category_filter.read().clone();
+                            let q = search_query.read().clone();
+                            let q_opt = if q.is_empty() { None } else { Some(q) };
                             spawn(async move {
-                                match crate::api::fetch_issues(status, category, cursor).await {
+                                match crate::api::fetch_issues(status, category, q_opt, cursor).await {
                                     Ok((mut data, new_cursor)) => {
                                         has_more.set(new_cursor.is_some());
                                         next_cursor.set(new_cursor);

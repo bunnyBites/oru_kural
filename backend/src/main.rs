@@ -4,10 +4,14 @@ mod models;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::{Router, routing::get};
+use axum::{Router, http::Request, routing::get};
 use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::request_id::{MakeRequestId, PropagateRequestIdLayer, RequestId, SetRequestIdLayer};
+use axum::http::header::HeaderName;
+use tower_http::trace::TraceLayer;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -16,9 +20,26 @@ pub struct AppState {
     pub supabase_key: String,
 }
 
+#[derive(Clone, Default)]
+struct UuidRequestId;
+
+impl MakeRequestId for UuidRequestId {
+    fn make_request_id<B>(&mut self, _: &Request<B>) -> Option<RequestId> {
+        let id = uuid::Uuid::new_v4().to_string();
+        axum::http::HeaderValue::from_str(&id).ok().map(RequestId::new)
+    }
+}
+
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
+
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt()
+        .json()
+        .with_env_filter(filter)
+        .init();
 
     let supabase_url = std::env::var("SUPABASE_URL")
         .expect("SUPABASE_URL must be set")
@@ -38,7 +59,7 @@ async fn main() {
         supabase_key,
     };
 
-    // 60 req/min per IP with a burst of 20
+    // 1 req/sec sustained, burst of 20 per IP
     let governor_conf = Arc::new(
         GovernorConfigBuilder::default()
             .per_second(1)
@@ -56,8 +77,6 @@ async fn main() {
             )
             .allow_methods([axum::http::Method::GET])
             .allow_headers(Any),
-        // No FRONTEND_ORIGIN = local dev; permissive is safe here.
-        // Production deployments must always set FRONTEND_ORIGIN.
         Err(_) => CorsLayer::permissive(),
     };
 
@@ -68,15 +87,36 @@ async fn main() {
         .route("/signals", get(handlers::list_signals))
         .route("/events", get(handlers::list_events))
         .route("/stats", get(handlers::get_stats))
+        // Layers applied inside-out; last .layer() = outermost (runs first on request).
         .layer(GovernorLayer { config: governor_conf })
         .layer(cors)
         .layer(CompressionLayer::new())
+        .layer(PropagateRequestIdLayer::new(HeaderName::from_static("x-request-id")))
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|req: &Request<_>| {
+                let request_id = req
+                    .headers()
+                    .get("x-request-id")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("-");
+                tracing::info_span!(
+                    "http",
+                    method = %req.method(),
+                    uri = %req.uri(),
+                    request_id = request_id,
+                )
+            }),
+        )
+        .layer(SetRequestIdLayer::new(
+            HeaderName::from_static("x-request-id"),
+            UuidRequestId,
+        ))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
         .await
         .unwrap();
-    println!("Oru Kural backend listening on :{port}");
+    tracing::info!("Oru Kural backend listening on :{port}");
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
         .await
         .unwrap();

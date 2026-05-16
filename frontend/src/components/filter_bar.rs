@@ -1,4 +1,7 @@
+use std::time::Duration;
+
 use dioxus::prelude::*;
+use gloo_timers::future::sleep;
 
 const STATUSES: &[(&str, &str)] = &[
     ("open", "Open"),
@@ -36,9 +39,13 @@ pub fn FilterBar(
     category_filter: Signal<Option<String>>,
     search_query: Signal<String>,
 ) -> Element {
+    // raw_input drives the text box immediately; search_query (parent signal) is
+    // updated only after 300 ms of silence so the API isn't called on every keystroke.
+    let mut raw_input: Signal<String> = use_signal(|| search_query.peek().clone());
+    let mut debounce_ver: Signal<u32> = use_signal(|| 0u32);
+
     let cur_status = status_filter.read().clone();
     let cur_category = category_filter.read().clone();
-    let search_val = search_query.read().clone();
 
     rsx! {
         div { class: "space-y-3 pb-2",
@@ -101,9 +108,20 @@ pub fn FilterBar(
                             pl-9 pr-4 py-2 text-sm font-body text-tvk-text \
                             placeholder:text-tvk-text-dim focus:outline-none \
                             focus:border-tvk-maroon transition-all duration-150",
-                    value: "{search_val}",
+                    value: "{raw_input}",
                     placeholder: "Search issues…",
-                    oninput: move |evt| { search_query.set(evt.value()); },
+                    oninput: move |evt| {
+                        let value = evt.value();
+                        raw_input.set(value.clone());
+                        let ver = *debounce_ver.peek() + 1;
+                        debounce_ver.set(ver);
+                        spawn(async move {
+                            sleep(Duration::from_millis(300)).await;
+                            if *debounce_ver.peek() == ver {
+                                search_query.set(value);
+                            }
+                        });
+                    },
                 }
             }
         }

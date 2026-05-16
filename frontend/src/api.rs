@@ -57,11 +57,13 @@ where
 pub async fn fetch_issues(
     status: Option<String>,
     category: Option<String>,
+    search_query: Option<String>,
     cursor: Option<String>,
 ) -> Result<(Vec<Issue>, Option<String>), String> {
     with_retry(|| {
         let status = status.clone();
         let category = category.clone();
+        let search_query = search_query.clone();
         let cursor = cursor.clone();
         async move {
             let client = reqwest::Client::new();
@@ -71,6 +73,9 @@ pub async fn fetch_issues(
             }
             if let Some(c) = category {
                 req = req.query(&[("category", c)]);
+            }
+            if let Some(q) = search_query {
+                req = req.query(&[("search_query", q)]);
             }
             if let Some(cur) = cursor {
                 req = req.query(&[("cursor", cur)]);
