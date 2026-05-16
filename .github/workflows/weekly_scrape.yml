@@ -31,6 +31,7 @@ jobs:
         run: pip install -r scripts/requirements.txt
 
       - name: Run tweet scraper (X API v2)
+        timeout-minutes: 10
         env:
           X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -39,21 +40,16 @@ jobs:
           X_MAX_PAGES: "10"
         run: python scripts/scrape_tweets.py
 
-      - name: Run AI categorizer (Gemini Flash)
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: python scripts/categorize_tweets.py
-
       - name: Run Reddit signal scraper
+        timeout-minutes: 10
+        continue-on-error: true
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: python scripts/scrape_reddit.py
 
       - name: Scrape CM events (TN Gov RSS + The Hindu TN)
+        timeout-minutes: 10
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -61,6 +57,7 @@ jobs:
         run: python scripts/scrape_cm_events.py
 
       - name: Categorize all new signals (X + Reddit)
+        timeout-minutes: 10
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -68,7 +65,8 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python scripts/categorize_signals.py
 
-      - name: Cluster tweets into Issues (Gemini)
+      - name: Cluster signals into Issues (Gemini)
+        timeout-minutes: 10
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -77,6 +75,7 @@ jobs:
         run: python scripts/cluster_issues.py
 
       - name: Link CM events to Issues (Gemini)
+        timeout-minutes: 10
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}

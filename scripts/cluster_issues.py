@@ -13,7 +13,7 @@ import asyncio
 import json
 import os
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -80,17 +80,46 @@ def _supa_headers(key: str) -> dict[str, str]:
     }
 
 
-async def fetch_unclustered_signals(client: httpx.AsyncClient, anon_key: str, supabase_url: str) -> list[dict[str, Any]]:
+async def fetch_last_cluster_run_at(
+    client: httpx.AsyncClient, anon_key: str, supabase_url: str
+) -> str | None:
+    try:
+        resp = await client.get(
+            f"{supabase_url}/rest/v1/scrape_runs",
+            params={
+                "script": "eq.cluster_issues",
+                "status": "eq.completed",
+                "order": "completed_at.desc",
+                "select": "completed_at",
+                "limit": "1",
+            },
+            headers={"apikey": anon_key, "Authorization": f"Bearer {anon_key}"},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        return rows[0]["completed_at"] if rows else None
+    except Exception as exc:
+        print(f"warning: could not fetch last cluster run time (will cluster all): {exc}")
+        return None
+
+
+async def fetch_unclustered_signals(
+    client: httpx.AsyncClient, anon_key: str, supabase_url: str, since: str | None = None
+) -> list[dict[str, Any]]:
     cats = ",".join(f'"{c}"' for c in CLUSTER_CATEGORIES)
+    params: dict[str, str] = {
+        "issue_id": "is.null",
+        "category": f"in.({cats})",
+        "order": "posted_at.desc",
+        "select": "id,content,translated_content,category,source,score,posted_at,author_handle",
+        "limit": "200",
+    }
+    if since:
+        params["scraped_at"] = f"gte.{since}"
     resp = await client.get(
         f"{supabase_url}/rest/v1/signals",
-        params={
-            "issue_id": "is.null",
-            "category": f"in.({cats})",
-            "order": "posted_at.desc",
-            "select": "id,content,translated_content,category,source,score,posted_at,author_handle",
-            "limit": "200",
-        },
+        params=params,
         headers={
             "apikey": anon_key,
             "Authorization": f"Bearer {anon_key}",
@@ -181,7 +210,7 @@ async def create_issue(
     signal_ids: list[str] = cluster.get("signal_ids", [])
     earliest = min(
         (signal_posted_ats[sid] for sid in signal_ids if sid in signal_posted_ats),
-        default=datetime.utcnow().isoformat() + "Z",
+        default=datetime.now(timezone.utc).isoformat(),
     )
     resp = await client.post(
         f"{supabase_url}/rest/v1/issues",
@@ -194,7 +223,7 @@ async def create_issue(
             "status": "open",
             "voice_count": len(signal_ids),
             "first_raised_at": earliest,
-            "last_updated_at": datetime.utcnow().isoformat() + "Z",
+            "last_updated_at": datetime.now(timezone.utc).isoformat(),
         },
         headers={**_supa_headers(service_key), "Prefer": "return=representation"},
         timeout=15,
@@ -244,6 +273,7 @@ async def link_signals(
     map_rows = [{"signal_id": sid, "issue_id": issue_id, "similarity_score": similarity_score} for sid in signal_ids]
     resp = await client.post(
         f"{supabase_url}/rest/v1/signal_issue_map",
+        params={"on_conflict": "signal_id,issue_id"},
         json=map_rows,
         headers={**_supa_headers(service_key), "Prefer": "resolution=merge-duplicates"},
         timeout=15,
@@ -273,7 +303,10 @@ async def main() -> None:
 
     try:
         async with httpx.AsyncClient() as client:
-            signals = await fetch_unclustered_signals(client, anon_key, supabase_url)
+            last_run_at = await fetch_last_cluster_run_at(client, anon_key, supabase_url)
+            if last_run_at:
+                print(f"Incremental mode: only signals scraped at or after {last_run_at}")
+            signals = await fetch_unclustered_signals(client, anon_key, supabase_url, since=last_run_at)
             x_count = sum(1 for s in signals if s.get("source") == "x")
             reddit_count = sum(1 for s in signals if s.get("source") == "reddit")
             print(f"Fetched {len(signals)} unclustered signals (X: {x_count}, Reddit: {reddit_count})")
@@ -307,7 +340,7 @@ async def main() -> None:
                                 "script": "cluster_issues",
                                 "batch_num": batch_num,
                                 "error": str(exc),
-                                "failed_at": datetime.utcnow().isoformat() + "Z",
+                                "failed_at": datetime.now(timezone.utc).isoformat(),
                             },
                             headers=_supa_headers(service_key),
                             timeout=10,
@@ -361,7 +394,7 @@ async def main() -> None:
                         params={"id": f"eq.{run_id}"},
                         json={
                             "status": "completed",
-                            "completed_at": datetime.utcnow().isoformat() + "Z",
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
                             "tweets_fetched": len(signals),
                             "tweets_upserted": total_linked,
                         },
@@ -380,7 +413,7 @@ async def main() -> None:
                         params={"id": f"eq.{run_id}"},
                         json={
                             "status": "failed",
-                            "completed_at": datetime.utcnow().isoformat() + "Z",
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
                             "error_message": str(e),
                         },
                         headers={**_supa_headers(service_key), "Prefer": "return=minimal"},

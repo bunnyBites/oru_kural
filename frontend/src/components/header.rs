@@ -66,16 +66,19 @@ pub fn Header() -> Element {
                 div { class: "flex gap-1 border-t border-tvk-border",
                     button {
                         class: if tab == Tab::Issues { active_cls } else { inactive_cls },
+                        "aria-label": "Issues Board tab",
                         onclick: move |_| active_tab.set(Tab::Issues),
                         "Issues Board"
                     }
                     button {
                         class: if tab == Tab::Events { active_cls } else { inactive_cls },
+                        "aria-label": "CM Activity tab",
                         onclick: move |_| active_tab.set(Tab::Events),
                         "CM Activity"
                     }
                     button {
                         class: if tab == Tab::Stats { active_cls } else { inactive_cls },
+                        "aria-label": "Stats tab",
                         onclick: move |_| active_tab.set(Tab::Stats),
                         "Stats"
                     }

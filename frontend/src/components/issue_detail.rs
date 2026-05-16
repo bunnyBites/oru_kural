@@ -34,6 +34,7 @@ pub fn IssueDetail(id: i64, on_close: EventHandler<()>) -> Element {
                                     rounded-full bg-tvk-surface-2 border border-tvk-border \
                                     text-tvk-text-dim hover:text-tvk-maroon \
                                     hover:border-tvk-border-hover transition-all",
+                            "aria-label": "Close issue detail",
                             onclick: move |_| on_close.call(()),
                             "✕"
                         }

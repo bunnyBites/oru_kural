@@ -73,6 +73,37 @@
   }
 }
 
+/* ── Badge variant classes ── */
+.badge-demand,
+.badge-criticism   { color: #B83227; background-color: #B8322718; border: 1px solid #B8322740; }
+.badge-complaint   { color: #C96A18; background-color: #C96A1818; border: 1px solid #C96A1840; }
+.badge-public-event{ color: #7B3AA8; background-color: #7B3AA818; border: 1px solid #7B3AA840; }
+.badge-welcome     { color: #1E8A4A; background-color: #1E8A4A18; border: 1px solid #1E8A4A40; }
+.badge-infrastructure{color: #1A6FA8; background-color: #1A6FA818; border: 1px solid #1A6FA840;}
+.badge-health      { color: #0E7A68; background-color: #0E7A6818; border: 1px solid #0E7A6840; }
+.badge-education   { color: #C04A00; background-color: #C04A0018; border: 1px solid #C04A0040; }
+.badge-other       { color: #6B7280; background-color: #6B728018; border: 1px solid #6B728040; }
+
+.badge-status-open    { color: #B83227; background-color: #B8322718; border: 1px solid #B8322740; }
+.badge-status-ack     { color: #C96A18; background-color: #C96A1818; border: 1px solid #C96A1840; }
+.badge-status-progress{ color: #1A6FA8; background-color: #1A6FA818; border: 1px solid #1A6FA840; }
+.badge-status-resolved{ color: #1E8A4A; background-color: #1E8A4A18; border: 1px solid #1E8A4A40; }
+
+[data-theme="dark"] .badge-demand,
+[data-theme="dark"] .badge-criticism    { color: #E87060; background-color: #E8706020; border: 1px solid #E8706045; }
+[data-theme="dark"] .badge-complaint    { color: #E08840; background-color: #E0884020; border: 1px solid #E0884045; }
+[data-theme="dark"] .badge-public-event { color: #A870D0; background-color: #A870D020; border: 1px solid #A870D045; }
+[data-theme="dark"] .badge-welcome      { color: #40B870; background-color: #40B87020; border: 1px solid #40B87045; }
+[data-theme="dark"] .badge-infrastructure{color: #4090D0; background-color: #4090D020; border: 1px solid #4090D045; }
+[data-theme="dark"] .badge-health       { color: #30A898; background-color: #30A89820; border: 1px solid #30A89845; }
+[data-theme="dark"] .badge-education    { color: #E07040; background-color: #E0704020; border: 1px solid #E0704045; }
+[data-theme="dark"] .badge-other        { color: #8898A8; background-color: #8898A820; border: 1px solid #8898A845; }
+
+[data-theme="dark"] .badge-status-open     { color: #E87060; background-color: #E8706020; border: 1px solid #E8706045; }
+[data-theme="dark"] .badge-status-ack      { color: #E08840; background-color: #E0884020; border: 1px solid #E0884045; }
+[data-theme="dark"] .badge-status-progress { color: #4090D0; background-color: #4090D020; border: 1px solid #4090D045; }
+[data-theme="dark"] .badge-status-resolved { color: #40B870; background-color: #40B87020; border: 1px solid #40B87045; }
+
 @keyframes card-enter {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }

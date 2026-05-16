@@ -11,8 +11,9 @@ import asyncio
 import json
 import os
 import random
+import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -70,7 +71,7 @@ async def complete_scrape_run(
         params={"id": f"eq.{run_id}"},
         json={
             "status": "completed",
-            "completed_at": datetime.utcnow().isoformat() + "Z",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
             "tweets_fetched": tweets_fetched,
             "tweets_upserted": tweets_upserted,
             "pages_fetched": pages_fetched,
@@ -98,7 +99,7 @@ async def fail_scrape_run(
         params={"id": f"eq.{run_id}"},
         json={
             "status": "failed",
-            "completed_at": datetime.utcnow().isoformat() + "Z",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
             "error_message": error,
         },
         headers={
@@ -242,7 +243,7 @@ async def scrape_tweets(bearer_token: str, since_id: str | None = None) -> tuple
                     "category": None,
                     "confidence": None,
                     "raw_json": tweet,
-                    "scraped_at": datetime.utcnow().isoformat() + "Z",
+                    "scraped_at": datetime.now(timezone.utc).isoformat(),
                 })
 
             next_token = data.get("meta", {}).get("next_token")
@@ -362,6 +363,9 @@ async def main() -> None:
         if not rows:
             print("Done. Total fetched: 0. Total upserted: 0.")
             await _complete(0, 0, page_count)
+            if not args.from_file:
+                print("ERROR: 0 signals upserted on a live X API run — failing the step.")
+                sys.exit(1)
             return
 
         total_upserted = await upsert_all(supabase_url, service_key, rows)

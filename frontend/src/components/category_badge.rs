@@ -2,27 +2,26 @@ use dioxus::prelude::*;
 
 #[component]
 pub fn CategoryBadge(category: String) -> Element {
-    let color = category_color(&category);
+    let badge_class = category_class(&category);
     rsx! {
         span {
             class: "inline-flex items-center font-body text-xs font-medium \
-                    px-2.5 py-0.5 rounded-full whitespace-nowrap shrink-0",
-            style: "color: {color}; background-color: {color}18; border: 1px solid {color}40;",
+                    px-2.5 py-0.5 rounded-full whitespace-nowrap shrink-0 {badge_class}",
             "{category}"
         }
     }
 }
 
-fn category_color(cat: &str) -> &'static str {
+fn category_class(cat: &str) -> &'static str {
     match cat {
-        "Demand"         => "#B83227",
-        "Complaint"      => "#C96A18",
-        "Public Event"   => "#7B3AA8",
-        "Welcome"        => "#1E8A4A",
-        "Infrastructure" => "#1A6FA8",
-        "Health"         => "#0E7A68",
-        "Education"      => "#C04A00",
-        "Criticism"      => "#B83227",
-        _                => "#6B7280",
+        "Demand"         => "badge-demand",
+        "Complaint"      => "badge-complaint",
+        "Public Event"   => "badge-public-event",
+        "Welcome"        => "badge-welcome",
+        "Infrastructure" => "badge-infrastructure",
+        "Health"         => "badge-health",
+        "Education"      => "badge-education",
+        "Criticism"      => "badge-criticism",
+        _                => "badge-other",
     }
 }

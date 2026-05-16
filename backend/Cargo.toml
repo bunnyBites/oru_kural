@@ -9,7 +9,11 @@ tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tower-http = { version = "0.5", features = ["cors"] }
+tower-http = { version = "0.5", features = ["cors", "compression-full", "request-id", "trace"] }
+tower_governor = { version = "0.4", features = ["axum"] }
 dotenvy = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
 base64 = "0.22"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+uuid = { version = "1", features = ["v4"] }

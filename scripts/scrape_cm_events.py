@@ -9,7 +9,7 @@ import asyncio
 import json
 import os
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import feedparser
@@ -194,7 +194,7 @@ async def main() -> None:
                         params={"id": f"eq.{run_id}"},
                         json={
                             "status": "completed",
-                            "completed_at": datetime.utcnow().isoformat() + "Z",
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
                             "tweets_fetched": len(events),
                             "tweets_upserted": upserted,
                         },
@@ -218,7 +218,7 @@ async def main() -> None:
                         params={"id": f"eq.{run_id}"},
                         json={
                             "status": "failed",
-                            "completed_at": datetime.utcnow().isoformat() + "Z",
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
                             "error_message": str(e),
                         },
                         headers={

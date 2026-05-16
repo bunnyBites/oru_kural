@@ -1,10 +1,12 @@
+use std::time::Duration;
+
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     Json,
 };
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use serde::Deserialize;
+use serde::{de::DeserializeOwned, Deserialize};
 
 use crate::{
     models::{
@@ -32,6 +34,33 @@ fn auth(req: reqwest::RequestBuilder, key: &str) -> reqwest::RequestBuilder {
         .header("Accept", "application/json")
 }
 
+/// Sends `req`, reads the JSON body, and enforces a 10-second overall deadline.
+async fn fetch_json<T: DeserializeOwned>(
+    req: reqwest::RequestBuilder,
+    label: &'static str,
+) -> Result<T, StatusCode> {
+    let inner = async {
+        req.send()
+            .await
+            .map_err(|e| {
+                tracing::error!("{label}: {e}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+            .json::<T>()
+            .await
+            .map_err(|e| {
+                tracing::error!("{label} json: {e}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })
+    };
+    tokio::time::timeout(Duration::from_secs(10), inner)
+        .await
+        .map_err(|_| {
+            tracing::error!("{label}: upstream timeout");
+            StatusCode::GATEWAY_TIMEOUT
+        })?
+}
+
 pub async fn health() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
@@ -46,6 +75,7 @@ pub struct IssuesQuery {
     pub status: Option<String>,
     pub category: Option<String>,
     pub location: Option<String>,
+    pub search_query: Option<String>,
     pub limit: Option<u32>,
     pub cursor: Option<String>,
 }
@@ -54,7 +84,7 @@ pub async fn list_issues(
     State(state): State<AppState>,
     Query(params): Query<IssuesQuery>,
 ) -> Result<Json<PagedResponse<Issue>>, StatusCode> {
-    let limit = params.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
+    let limit = params.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let fetch_limit = (limit + 1).to_string();
 
     let mut req = auth(
@@ -78,31 +108,27 @@ pub async fn list_issues(
     if let Some(loc) = &params.location {
         req = req.query(&[("location", format!("ilike.*{loc}*"))]);
     }
+    if let Some(q) = &params.search_query {
+        if !q.is_empty() {
+            req = req.query(&[(
+                "or",
+                format!("(title.ilike.*{q}*,summary.ilike.*{q}*)"),
+            )]);
+        }
+    }
     if let Some(cursor_b64) = &params.cursor {
         let decoded = B64
             .decode(cursor_b64)
             .ok()
             .and_then(|b| String::from_utf8(b).ok())
             .ok_or_else(|| {
-                eprintln!("list_issues: invalid cursor");
+                tracing::warn!("list_issues: invalid cursor");
                 StatusCode::BAD_REQUEST
             })?;
         req = req.query(&[("last_updated_at", format!("lt.{decoded}"))]);
     }
 
-    let mut issues = req
-        .send()
-        .await
-        .map_err(|e| {
-            eprintln!("list_issues: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .json::<Vec<Issue>>()
-        .await
-        .map_err(|e| {
-            eprintln!("list_issues json: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let mut issues = fetch_json::<Vec<Issue>>(req, "list_issues").await?;
 
     let has_more = issues.len() > limit as usize;
     if has_more {
@@ -131,76 +157,52 @@ pub async fn get_issue(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<IssueDetailResponse>, StatusCode> {
-    let issue_rows = auth(
-        state
-            .client
-            .get(format!("{}/rest/v1/issues", state.supabase_url)),
-        &state.supabase_key,
+    let issue_rows = fetch_json::<Vec<Issue>>(
+        auth(
+            state
+                .client
+                .get(format!("{}/rest/v1/issues", state.supabase_url)),
+            &state.supabase_key,
+        )
+        .query(&[("select", ISSUE_COLS), ("id", &format!("eq.{id}"))]),
+        "get_issue",
     )
-    .query(&[("select", ISSUE_COLS), ("id", &format!("eq.{id}"))])
-    .send()
-    .await
-    .map_err(|e| {
-        eprintln!("get_issue: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?
-    .json::<Vec<Issue>>()
-    .await
-    .map_err(|e| {
-        eprintln!("get_issue json: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    .await?;
 
     let issue = issue_rows
         .into_iter()
         .next()
         .ok_or(StatusCode::NOT_FOUND)?;
 
-    let signals = auth(
-        state
-            .client
-            .get(format!("{}/rest/v1/signals", state.supabase_url)),
-        &state.supabase_key,
-    )
-    .query(&[
-        ("select", SIGNAL_DETAIL_COLS),
-        ("issue_id", &format!("eq.{id}")),
-        ("order", "posted_at.desc"),
-        ("limit", "20"),
-    ])
-    .send()
-    .await
-    .map_err(|e| {
-        eprintln!("get_issue signals: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?
-    .json::<Vec<Signal>>()
-    .await
-    .map_err(|e| {
-        eprintln!("get_issue signals json: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-
-    let linked_event = if let Some(event_id) = issue.linked_event_id {
+    let signals = fetch_json::<Vec<Signal>>(
         auth(
             state
                 .client
-                .get(format!("{}/rest/v1/cm_events", state.supabase_url)),
+                .get(format!("{}/rest/v1/signals", state.supabase_url)),
             &state.supabase_key,
         )
-        .query(&[("select", "*"), ("id", &format!("eq.{event_id}"))])
-        .send()
-        .await
-        .map_err(|e| {
-            eprintln!("get_issue event: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .json::<Vec<CmEvent>>()
-        .await
-        .map_err(|e| {
-            eprintln!("get_issue event json: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
+        .query(&[
+            ("select", SIGNAL_DETAIL_COLS),
+            ("issue_id", &format!("eq.{id}")),
+            ("order", "posted_at.desc"),
+            ("limit", "20"),
+        ]),
+        "get_issue signals",
+    )
+    .await?;
+
+    let linked_event = if let Some(event_id) = issue.linked_event_id {
+        fetch_json::<Vec<CmEvent>>(
+            auth(
+                state
+                    .client
+                    .get(format!("{}/rest/v1/cm_events", state.supabase_url)),
+                &state.supabase_key,
+            )
+            .query(&[("select", "*"), ("id", &format!("eq.{event_id}"))]),
+            "get_issue event",
+        )
+        .await?
         .into_iter()
         .next()
     } else {
@@ -229,7 +231,7 @@ pub async fn list_signals(
     State(state): State<AppState>,
     Query(params): Query<SignalsQuery>,
 ) -> Result<Json<PagedResponse<Signal>>, StatusCode> {
-    let limit = params.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
+    let limit = params.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let fetch_limit = (limit + 1).to_string();
 
     let mut req = auth(
@@ -259,25 +261,13 @@ pub async fn list_signals(
             .ok()
             .and_then(|b| String::from_utf8(b).ok())
             .ok_or_else(|| {
-                eprintln!("list_signals: invalid cursor");
+                tracing::warn!("list_signals: invalid cursor");
                 StatusCode::BAD_REQUEST
             })?;
         req = req.query(&[("posted_at", format!("lt.{decoded}"))]);
     }
 
-    let mut signals = req
-        .send()
-        .await
-        .map_err(|e| {
-            eprintln!("list_signals: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .json::<Vec<Signal>>()
-        .await
-        .map_err(|e| {
-            eprintln!("list_signals json: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let mut signals = fetch_json::<Vec<Signal>>(req, "list_signals").await?;
 
     let has_more = signals.len() > limit as usize;
     if has_more {
@@ -316,7 +306,7 @@ pub async fn list_events(
     State(state): State<AppState>,
     Query(params): Query<EventsQuery>,
 ) -> Result<Json<PagedResponse<CmEvent>>, StatusCode> {
-    let limit = params.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
+    let limit = params.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let fetch_limit = (limit + 1).to_string();
 
     let mut req = auth(
@@ -343,25 +333,13 @@ pub async fn list_events(
             .ok()
             .and_then(|b| String::from_utf8(b).ok())
             .ok_or_else(|| {
-                eprintln!("list_events: invalid cursor");
+                tracing::warn!("list_events: invalid cursor");
                 StatusCode::BAD_REQUEST
             })?;
         req = req.query(&[("event_date", format!("lt.{decoded}"))]);
     }
 
-    let mut events = req
-        .send()
-        .await
-        .map_err(|e| {
-            eprintln!("list_events: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?
-        .json::<Vec<CmEvent>>()
-        .await
-        .map_err(|e| {
-            eprintln!("list_events json: {e}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let mut events = fetch_json::<Vec<CmEvent>>(req, "list_events").await?;
 
     let has_more = events.len() > limit as usize;
     if has_more {
@@ -391,28 +369,20 @@ pub async fn list_events(
 pub async fn get_stats(
     State(state): State<AppState>,
 ) -> Result<Json<StatsResponse>, StatusCode> {
-    let rows = auth(
-        state
-            .client
-            .get(format!("{}/rest/v1/category_stats", state.supabase_url)),
-        &state.supabase_key,
+    let rows = fetch_json::<Vec<CategoryStat>>(
+        auth(
+            state
+                .client
+                .get(format!("{}/rest/v1/category_stats", state.supabase_url)),
+            &state.supabase_key,
+        )
+        .query(&[
+            ("select", "category,tweet_count,issue_count,open_count,last_updated"),
+            ("order", "tweet_count.desc"),
+        ]),
+        "get_stats",
     )
-    .query(&[
-        ("select", "category,tweet_count,issue_count,open_count,last_updated"),
-        ("order", "tweet_count.desc"),
-    ])
-    .send()
-    .await
-    .map_err(|e| {
-        eprintln!("get_stats: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?
-    .json::<Vec<CategoryStat>>()
-    .await
-    .map_err(|e| {
-        eprintln!("get_stats json: {e}");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    .await?;
 
     Ok(Json(StatsResponse { data: rows }))
 }
