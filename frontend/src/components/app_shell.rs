@@ -10,14 +10,16 @@ use super::stats_panel::StatsPanel;
 pub struct AppCtx {
     pub active_tab: Signal<Tab>,
     pub dark_mode: Signal<bool>,
+    pub category_filter: Signal<Option<String>>,
 }
 
 #[component]
 pub fn AppShell() -> Element {
     let active_tab = use_signal(|| Tab::Issues);
     let dark_mode = use_signal(|| false);
+    let category_filter = use_signal(|| None::<String>);
 
-    use_context_provider(|| AppCtx { active_tab, dark_mode });
+    use_context_provider(|| AppCtx { active_tab, dark_mode, category_filter });
 
     use_effect(move || {
         let mut dm = dark_mode;

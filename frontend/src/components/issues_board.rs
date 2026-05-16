@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::models::Issue;
+use super::app_shell::AppCtx;
 use super::filter_bar::FilterBar;
 use super::skeleton_card::SkeletonCard;
 use super::issue_card::IssueCard;
@@ -8,14 +9,27 @@ use super::issue_detail::IssueDetail;
 
 #[component]
 pub fn IssuesBoard() -> Element {
+    let ctx = use_context::<AppCtx>();
+    let category_filter = ctx.category_filter;
+
     let status_filter: Signal<Option<String>> = use_signal(|| None);
-    let category_filter: Signal<Option<String>> = use_signal(|| None);
     let search_query: Signal<String> = use_signal(String::new);
     let mut issues: Signal<Vec<Issue>> = use_signal(Vec::new);
     let mut next_cursor: Signal<Option<String>> = use_signal(|| None);
     let mut has_more: Signal<bool> = use_signal(|| false);
     let mut loading: Signal<bool> = use_signal(|| true);
     let mut selected_issue_id: Signal<Option<i64>> = use_signal(|| None);
+
+    // Lock body scroll when drawer is open so the background doesn't scroll
+    use_effect(move || {
+        let locked = selected_issue_id.read().is_some();
+        let script = if locked {
+            "document.body.style.overflow = 'hidden';"
+        } else {
+            "document.body.style.overflow = '';"
+        };
+        let _ = document::eval(script);
+    });
 
     use_effect(move || {
         let status = status_filter.read().clone();
@@ -107,12 +121,26 @@ pub fn IssuesBoard() -> Element {
                     }
                 }
             }
+        }
 
-            if let Some(id) = selected {
-                IssueDetail {
-                    key: "{id}",
-                    id,
-                    on_close: move |_| selected_issue_id.set(None),
+        // Drawer modal — rendered outside the scrolling content flow
+        if let Some(id) = selected {
+            div {
+                class: "fixed inset-0 z-50 animate-fade-in",
+                style: "background: rgba(0,0,0,0.45); backdrop-filter: blur(2px);",
+                onclick: move |_| selected_issue_id.set(None),
+
+                div {
+                    class: "absolute right-0 top-0 h-full w-full max-w-2xl \
+                            bg-tvk-surface border-l border-tvk-border shadow-2xl \
+                            overflow-y-auto animate-drawer-in",
+                    onclick: move |e| e.stop_propagation(),
+
+                    IssueDetail {
+                        key: "{id}",
+                        id,
+                        on_close: move |_| selected_issue_id.set(None),
+                    }
                 }
             }
         }

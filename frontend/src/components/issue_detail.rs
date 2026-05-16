@@ -12,7 +12,7 @@ pub fn IssueDetail(id: i64, on_close: EventHandler<()>) -> Element {
     });
 
     rsx! {
-        div { class: "mt-6 bg-tvk-surface border border-tvk-border rounded-xl p-6",
+        div { class: "p-6",
             match &*detail.read() {
                 None => rsx! {
                     div { class: "animate-pulse space-y-3",
