@@ -4,7 +4,7 @@ use crate::models::{CategoryStat, CmEvent, Issue, Signal};
 
 const API_BASE: &str = match option_env!("API_BASE_URL") {
     Some(url) => url,
-    None => "http://localhost:8080",
+    None => "http://localhost:3000",
 };
 
 #[derive(Deserialize)]
