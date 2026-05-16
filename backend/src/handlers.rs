@@ -398,7 +398,7 @@ pub async fn get_stats(
         &state.supabase_key,
     )
     .query(&[
-        ("select", "category,tweet_count,last_updated"),
+        ("select", "category,tweet_count,issue_count,open_count,last_updated"),
         ("order", "tweet_count.desc"),
     ])
     .send()

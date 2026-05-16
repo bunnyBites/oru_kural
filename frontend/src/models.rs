@@ -49,6 +49,8 @@ pub struct CmEvent {
 pub struct CategoryStat {
     pub category: String,
     pub tweet_count: i32,
+    pub issue_count: i32,
+    pub open_count: i32,
 }
 
 #[derive(Clone, PartialEq, Debug)]

@@ -13,6 +13,8 @@ const CATEGORIES: &[&str] = &[
     "Education",
     "Demand",
     "Complaint",
+    "Public Event",
+    "Welcome",
     "Criticism",
     "Other",
 ];
