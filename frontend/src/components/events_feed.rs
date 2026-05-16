@@ -11,19 +11,24 @@ pub fn EventsFeed() -> Element {
     let mut next_cursor: Signal<Option<String>> = use_signal(|| None);
     let mut has_more: Signal<bool> = use_signal(|| false);
     let mut loading: Signal<bool> = use_signal(|| true);
+    let mut error: Signal<Option<String>> = use_signal(|| None);
 
     use_effect(move || {
         let lo = *linked_only.read();
 
         spawn(async move {
             loading.set(true);
+            error.set(None);
             match crate::api::fetch_events(None, lo).await {
                 Ok((data, cursor)) => {
                     has_more.set(cursor.is_some());
                     next_cursor.set(cursor);
                     events.set(data);
                 }
-                Err(e) => eprintln!("fetch_events: {e}"),
+                Err(e) => {
+                    eprintln!("fetch_events: {e}");
+                    error.set(Some("Could not load events. Tap to retry.".into()));
+                }
             }
             loading.set(false);
         });
@@ -32,6 +37,7 @@ pub fn EventsFeed() -> Element {
     let is_loading = *loading.read();
     let has_more_val = *has_more.read();
     let lo = *linked_only.read();
+    let error_msg = error.read().clone();
 
     let active_pill = "bg-tvk-maroon-soft text-tvk-maroon border border-tvk-maroon font-body \
                        text-sm font-medium px-4 py-1.5 rounded-full transition-all duration-150";
@@ -51,6 +57,35 @@ pub fn EventsFeed() -> Element {
                     class: if lo { active_pill } else { inactive_pill },
                     onclick: move |_| linked_only.set(true),
                     "Linked to issues"
+                }
+            }
+
+            if let Some(msg) = error_msg {
+                div {
+                    class: "flex items-center justify-between gap-3 rounded-lg px-4 py-3 \
+                            text-sm font-body cursor-pointer",
+                    style: "border: 1px solid #B8322740; background-color: #B8322710; color: #B83227;",
+                    onclick: move |_| {
+                        let lo_val = *linked_only.read();
+                        error.set(None);
+                        loading.set(true);
+                        spawn(async move {
+                            match crate::api::fetch_events(None, lo_val).await {
+                                Ok((data, cursor)) => {
+                                    has_more.set(cursor.is_some());
+                                    next_cursor.set(cursor);
+                                    events.set(data);
+                                }
+                                Err(e) => {
+                                    eprintln!("fetch_events retry: {e}");
+                                    error.set(Some("Could not load events. Tap to retry.".into()));
+                                }
+                            }
+                            loading.set(false);
+                        });
+                    },
+                    span { "{msg}" }
+                    span { class: "shrink-0 opacity-70", "↺ Retry" }
                 }
             }
 

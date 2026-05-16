@@ -1,7 +1,11 @@
 mod handlers;
 mod models;
 
+use std::net::SocketAddr;
+use std::sync::Arc;
+
 use axum::{Router, routing::get};
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::{Any, CorsLayer};
 
 #[derive(Clone)]
@@ -33,6 +37,15 @@ async fn main() {
         supabase_key,
     };
 
+    // 60 req/min per IP with a burst of 20
+    let governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(1)
+            .burst_size(20)
+            .finish()
+            .unwrap(),
+    );
+
     let cors = match std::env::var("FRONTEND_ORIGIN") {
         Ok(origin) => CorsLayer::new()
             .allow_origin(
@@ -42,6 +55,8 @@ async fn main() {
             )
             .allow_methods([axum::http::Method::GET])
             .allow_headers(Any),
+        // No FRONTEND_ORIGIN = local dev; permissive is safe here.
+        // Production deployments must always set FRONTEND_ORIGIN.
         Err(_) => CorsLayer::permissive(),
     };
 
@@ -52,6 +67,7 @@ async fn main() {
         .route("/signals", get(handlers::list_signals))
         .route("/events", get(handlers::list_events))
         .route("/stats", get(handlers::get_stats))
+        .layer(GovernorLayer { config: governor_conf })
         .layer(cors)
         .with_state(state);
 
@@ -59,5 +75,7 @@ async fn main() {
         .await
         .unwrap();
     println!("Oru Kural backend listening on :{port}");
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+        .await
+        .unwrap();
 }

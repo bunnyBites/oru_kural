@@ -62,13 +62,8 @@ API failures currently only call `eprintln!`. Users see a blank panel with no in
 
 ---
 
-### T-06 · Fix CORS permissive fallback
-**Area:** `backend/src/main.rs`
-When `FRONTEND_ORIGIN` is unset, the backend allows any origin. This is fine locally but dangerous if the backend URL is ever shared publicly before the env var is set in production.
-
-**What to do:**
-- Change the fallback from permissive-any to a hard `http://localhost:8080` (the only legitimate local origin).
-- Document in `.env.example` that `FRONTEND_ORIGIN` must be set in all deployed environments.
+### ~~T-06 · Fix CORS permissive fallback~~ — CLOSED (not an issue)
+The permissive fallback is intentional for local dev. Production always has `FRONTEND_ORIGIN` set (Fly.io env var), so the fallback never runs in production. Hardcoding `localhost:8080` breaks dev because browsers treat `localhost` and `127.0.0.1` as different origins and `dx serve` can run on varying ports.
 
 ---
 

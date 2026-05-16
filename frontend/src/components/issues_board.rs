@@ -18,6 +18,7 @@ pub fn IssuesBoard() -> Element {
     let mut next_cursor: Signal<Option<String>> = use_signal(|| None);
     let mut has_more: Signal<bool> = use_signal(|| false);
     let mut loading: Signal<bool> = use_signal(|| true);
+    let mut error: Signal<Option<String>> = use_signal(|| None);
     let mut selected_issue_id: Signal<Option<i64>> = use_signal(|| None);
 
     // Lock body scroll when drawer is open so the background doesn't scroll
@@ -37,6 +38,7 @@ pub fn IssuesBoard() -> Element {
 
         spawn(async move {
             loading.set(true);
+            error.set(None);
             selected_issue_id.set(None);
             match crate::api::fetch_issues(status, category, None).await {
                 Ok((data, cursor)) => {
@@ -44,7 +46,10 @@ pub fn IssuesBoard() -> Element {
                     next_cursor.set(cursor);
                     issues.set(data);
                 }
-                Err(e) => eprintln!("fetch_issues: {e}"),
+                Err(e) => {
+                    eprintln!("fetch_issues: {e}");
+                    error.set(Some("Could not load issues. Tap to retry.".into()));
+                }
             }
             loading.set(false);
         });
@@ -68,10 +73,42 @@ pub fn IssuesBoard() -> Element {
     let is_loading = *loading.read();
     let has_more_val = *has_more.read();
     let selected = *selected_issue_id.read();
+    let error_msg = error.read().clone();
 
     rsx! {
         div { class: "space-y-6",
             FilterBar { status_filter, category_filter, search_query }
+
+            if let Some(msg) = error_msg {
+                div {
+                    class: "flex items-center justify-between gap-3 rounded-lg border \
+                            border-red-200 bg-red-50 px-4 py-3 text-sm font-body \
+                            text-red-700 cursor-pointer",
+                    style: "border-color: #B8322740; background-color: #B8322710; color: #B83227;",
+                    onclick: move |_| {
+                        let status = status_filter.read().clone();
+                        let category = category_filter.read().clone();
+                        error.set(None);
+                        loading.set(true);
+                        spawn(async move {
+                            match crate::api::fetch_issues(status, category, None).await {
+                                Ok((data, cursor)) => {
+                                    has_more.set(cursor.is_some());
+                                    next_cursor.set(cursor);
+                                    issues.set(data);
+                                }
+                                Err(e) => {
+                                    eprintln!("fetch_issues retry: {e}");
+                                    error.set(Some("Could not load issues. Tap to retry.".into()));
+                                }
+                            }
+                            loading.set(false);
+                        });
+                    },
+                    span { "{msg}" }
+                    span { class: "shrink-0 opacity-70", "↺ Retry" }
+                }
+            }
 
             if is_loading {
                 div { class: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4",
