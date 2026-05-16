@@ -2,152 +2,244 @@
 
 **One Voice** — A civic tech window into what Tamil Nadu citizens are saying to their Chief Minister.
 
-Oru Kural scrapes public tweets mentioning the Tamil Nadu CM's official X handle (@CMOTamilnadu), uses AI to categorize them by topic (infrastructure, health, education, complaints, and more), and surfaces the results in a live dashboard — turning the noise of social media into structured civic signal.
+Oru Kural scrapes public posts mentioning `@CMOTamilnadu` from X and Reddit, uses Gemini AI to categorize and cluster them into structured civic issues, tracks official CM press releases, and surfaces everything in a live three-tab dashboard — turning social media noise into structured civic signal.
 
 ---
 
 ## Architecture
 
 ```
-  X / Twitter
-      │
-      │  (X API v2 search/recent — Bearer Token)
-      ▼
- scrape_tweets.py ──────────────────────────┐
-                                            │ upsert (batch 100)
-                                            ▼
-                                    Supabase (PostgreSQL)
-                                     table: tweets
-                                            │
-                         ┌──────────────────┘
-                         │  fetch WHERE category IS NULL
-                         ▼
-              categorize_tweets.py
-                         │  Gemini Flash 2.0
-                         │  (batch 40 tweets / call)
-                         │
-                         └──► update category + confidence
-                                            │
-                                            ▼
-                               Axum REST API  :3000
-                               GET /api/tweets[?category=]
-                               GET /api/tweets/:id
-                               GET /api/stats
-                                            │
-                                            ▼
-                            Dioxus 0.7 Web Dashboard  :8080
-                            category pills · tweet grid · detail view
+  X API v2          Reddit JSON         TN Gov / The Hindu RSS
+      │                  │                        │
+      ▼                  ▼                        ▼
+ scrape_tweets.py   scrape_reddit.py    scrape_cm_events.py
+      │                  │                        │
+      └──────────────────┘                        │
+                 │ upsert                  upsert  │
+                 ▼                                 ▼
+         Supabase (PostgreSQL)           cm_events table
+          signals table
+                 │
+                 ▼
+     categorize_signals.py   ← Gemini Flash (batch 40)
+                 │ update category + confidence
+                 ▼
+          cluster_issues.py  ← Gemini (semantic clustering)
+                 │ creates issues table rows
+                 ▼
+     link_events_to_issues.py ← Gemini (links cm_events ↔ issues)
+                 │
+                 ▼
+         Axum REST API  :3000 (local) / :8080 (Fly.io)
+           GET /issues      GET /events
+           GET /issues/:id  GET /stats
+           GET /signals
+                 │
+                 ▼
+     Dioxus 0.7 WASM Dashboard  :8080 (local)
+     Issues Board · CM Activity · Stats
 ```
 
 ---
 
-## Setup
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Data pipeline | Python 3.11+ async (httpx) |
+| AI categorization | Google Gemini 2.5 Flash (via `llm.py` abstraction) |
+| Database | Supabase (PostgreSQL + PostgREST) |
+| Backend API | Rust + Axum (thin Supabase proxy, no direct DB) |
+| Frontend | Rust + Dioxus 0.7 (compiles to WASM) |
+| CSS | Tailwind v4 (`@tailwindcss/cli`) |
+| Backend hosting | Fly.io (Mumbai region, auto-scale to 0) |
+| Frontend hosting | Vercel (SPA, rewrites to index.html) |
+| Automation | GitHub Actions (weekly cron, Monday 2am UTC) |
+
+---
+
+## Local Development Setup
 
 ### 1. Clone
 
 ```bash
-git clone https://github.com/your-handle/oru-kural.git
+git clone https://github.com/bunnyBites/oru-kural.git
 cd oru-kural
 ```
 
-### 2. Python environment
+### 2. Environment variables
+
+```bash
+cp .env.example .env
+```
+
+Fill in your values:
+
+| Variable | Where to get it |
+|---|---|
+| `SUPABASE_URL` | Supabase dashboard → Project Settings → API |
+| `SUPABASE_ANON_KEY` | Supabase dashboard → Project Settings → API (publishable) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard → Project Settings → API (secret) |
+| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com) |
+| `X_BEARER_TOKEN` | [developer.x.com](https://developer.x.com) → App → Bearer Token |
+| `PORT` | Set to `3000` for local dev (backend); Fly.io uses `8080` |
+
+### 3. Supabase: run all migrations
+
+Open the [Supabase SQL Editor](https://supabase.com/dashboard/project/_/sql) and run each file in order:
+
+```
+supabase/migrations/002_scale_indexes_and_scrape_runs.sql
+supabase/migrations/003_category_stats.sql
+supabase/migrations/004_retention_archive.sql
+supabase/migrations/005_categorization_failures.sql
+supabase/migrations/006_v3_schema.sql
+supabase/migrations/007_signals_table.sql
+supabase/migrations/008_anon_read_policies.sql   ← required for backend reads
+```
+
+> **Important:** Migration `008` adds RLS `SELECT` policies for the `anon` role on all public tables. Without it, the backend (which uses `SUPABASE_ANON_KEY`) returns empty arrays even when data exists.
+
+### 4. Python pipeline
 
 ```bash
 cd scripts
 python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 3. Environment variables
+Run the full pipeline once to seed data (subsequent runs are automated weekly):
 
 ```bash
-cp .env.example .env
-# fill in your keys:
-#   SUPABASE_URL              — project URL from Supabase dashboard
-#   SUPABASE_ANON_KEY         — anon/public key from Supabase dashboard
-#   SUPABASE_SERVICE_ROLE_KEY — service role key (writes only; never expose in frontend)
-#   GEMINI_API_KEY            — Google AI Studio key
-#   X_BEARER_TOKEN            — X API v2 app-only bearer token from developer.x.com
+python scrape_tweets.py        # fetch X posts → signals table
+python scrape_reddit.py        # fetch Reddit posts → signals table
+python scrape_cm_events.py     # fetch TN Gov + The Hindu RSS → cm_events table
+python categorize_signals.py   # Gemini: categorize uncategorized signals
+python cluster_issues.py       # Gemini: cluster signals into issues
+python link_events_to_issues.py # Gemini: link cm_events ↔ issues
 ```
 
-### 4. Supabase table
-
-Run this SQL in the Supabase SQL editor:
-
-```sql
-create table tweets (
-  id            text primary key,
-  author_handle text not null,
-  author_name   text,
-  content       text not null,
-  posted_at     timestamptz not null,
-  category      text,
-  confidence    float4,
-  raw_json      jsonb,
-  scraped_at    timestamptz not null
-);
-```
-
-### 5. Run the pipeline
-
+Dry-run mode (skip API, load local JSON):
 ```bash
-# Step 1 — scrape via X API v2, upsert to Supabase (requires X_BEARER_TOKEN)
-python scrape_tweets.py
-
-# Step 2 — categorize all uncategorized tweets with Gemini
-python categorize_tweets.py
+python scrape_tweets.py --dry-run path/to/file.json
 ```
 
-## Data Fetching
-
-Tweets are fetched via the official **X API v2** (`search/recent` endpoint).
-
-- Auth: App-only Bearer Token
-- Query: `@CMOTamilnadu -is:retweet lang:ta,en`
-- Pagination: up to 1,000 tweets per run (configurable via `MAX_PAGES`)
-- Cost: ~$0.005/tweet — 1,000 tweets/week ≈ $5/month
-- Run weekly to stay within the 7-day recency window
-
-A legacy Apify-based scraper is preserved at `scripts/scrape_tweets_apify.py` for one-time historical backfill only.
-
-### Running the scraper
-```bash
-cd scripts
-pip install -r requirements.txt
-cp ../.env.example ../.env   # fill in your keys
-python scrape_tweets.py
-```
-
-### 6. Run the backend
+### 5. Backend
 
 ```bash
 cd backend
-# Add DATABASE_URL and PORT to .env first (see .env.example)
+# .env is read from the repo root via dotenvy
 cargo run
 # → http://localhost:3000
 ```
 
-### 7. Run the frontend
+### 6. Frontend
+
+Open two terminals:
 
 ```bash
-# Terminal A — compile Tailwind (run once, then watch)
+# Terminal 1 — compile Tailwind (watch mode)
 cd frontend
 npm run css
 
-# Terminal B — serve the Dioxus app
+# Terminal 2 — Dioxus dev server
 cd frontend
 dx serve
 # → http://localhost:8080
 ```
 
+> **Port note:** The backend runs on `:3000` and the frontend dev server on `:8080`. The frontend's `API_BASE` defaults to `http://localhost:3000` at compile time. For production, set `API_BASE_URL` to your Fly.io backend URL before building.
+
 ---
 
-## Phase roadmap
+## API Reference
+
+All routes return JSON. No authentication required (read-only, anon key via backend).
+
+| Method | Route | Query params | Response |
+|--------|-------|-------------|----------|
+| `GET` | `/health` | — | `{ status, service }` |
+| `GET` | `/issues` | `status`, `category`, `location`, `limit`, `cursor` | `PagedResponse<Issue>` |
+| `GET` | `/issues/:id` | — | `{ issue, signals[], linked_event? }` |
+| `GET` | `/signals` | `source`, `category`, `q`, `limit`, `cursor` | `PagedResponse<Signal>` |
+| `GET` | `/events` | `category`, `linked`, `limit`, `cursor` | `PagedResponse<CmEvent>` |
+| `GET` | `/stats` | — | `{ data: CategoryStat[] }` |
+
+Pagination uses keyset cursors (base64-encoded timestamps). No `OFFSET`, no `COUNT(*)`.
+
+---
+
+## Deployment
+
+### Backend — Fly.io
+
+```bash
+fly deploy          # uses Dockerfile at repo root
+fly secrets set SUPABASE_URL=... SUPABASE_ANON_KEY=... FRONTEND_ORIGIN=https://your-vercel-url.vercel.app
+```
+
+The Fly app runs on port `8080` internally (`PORT=8080` set in `fly.toml`).
+
+### Frontend — Vercel
+
+Set a build environment variable in the Vercel project dashboard:
+
+```
+API_BASE_URL = https://oru-kural-backend.fly.dev
+```
+
+Then push to `main` — Vercel picks up `vercel.json` and builds automatically.
+
+### Automation — GitHub Actions
+
+Weekly pipeline runs every Monday at 2am UTC (7:30am IST) via `.github/workflows/weekly_scrape.yml`. Set these repository secrets:
+
+```
+SUPABASE_URL
+SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+GEMINI_API_KEY
+X_BEARER_TOKEN
+```
+
+Trigger manually anytime via **Actions → Weekly Tweet Scraper → Run workflow**.
+
+---
+
+## Database Schema
+
+Migrations `002–008` are applied. Never re-run `001` (initial tweets table, now superseded).
+
+| Table | Purpose |
+|-------|---------|
+| `signals` | Unified citizen posts — X tweets + Reddit posts |
+| `issues` | AI-clustered civic demands, keyed by category + location |
+| `cm_events` | Official CM press releases scraped from RSS |
+| `signal_issue_map` | Many signals → one issue |
+| `category_stats` | Denormalized counts per category (tweet + issue counts) |
+| `scrape_runs` | Pipeline observability — timestamps, counts, errors |
+
+---
+
+## Known Issues & Gotchas
+
+- **RLS must be configured** — migration `008` must be run in Supabase SQL editor. Without it, the anon key returns empty arrays from all tables (service role key bypasses RLS).
+- **Port conflict in local dev** — backend uses `:3000`, `dx serve` uses `:8080`. The frontend `API_BASE` defaults to `localhost:3000`. Do not run the backend on `:8080` locally or requests will hit the Dioxus dev server.
+- **`tailwind.css` is generated** — never edit `frontend/assets/tailwind.css` by hand. Run `npm run css` to regenerate. All custom colors use inline `style=` attributes (dynamic Tailwind class purging would strip them).
+- **Reddit API pending** — `scrape_reddit.py` uses the unauthenticated JSON fallback (`/r/Chennai.json`). Fill in `REDDIT_CLIENT_ID/SECRET` when approved to switch to the official API.
+- **`issues` table starts empty** — data only appears after running `cluster_issues.py` at least once. The scraping alone is not enough; clustering must run too.
+
+---
+
+## Phase Roadmap
 
 | Phase | Status | Description |
 |-------|--------|-------------|
-| **1 — Data pipeline** | ✅ Done | X API v2 scraper → Supabase, Gemini categorization |
-| **2 — Backend API** | ✅ Done | Rust + Axum REST API (tweets list/filter/detail + stats) |
-| **3 — Dashboard** | ✅ Done | Rust + Dioxus 0.7 web frontend with category pills and detail view |
-| **4 — Automation** | 🔜 Next | Scheduled scrape + categorize (cron / Supabase Edge Functions) |
+| **1 — Data pipeline** | Done | X API v2 + Reddit scraping → Supabase, Gemini categorization |
+| **2 — v3 Architecture** | Done | Unified signals table, issues clustering, CM events, Axum API, Dioxus 3-tab UI |
+| **3 — Polish & observability** | In progress | Dark mode theming, error toasts, structured backend logging (`tracing`), frontend API retry |
+| **4 — Auth & rate limiting** | Planned | Backend rate limiting (tower middleware), optional admin write API |
+| **5 — Signal expansion** | Planned | WhatsApp forwarded messages (manual upload), petitions, local news scraping |
+| **6 — Multilingual** | Planned | Tamil UI labels, translated signal display, language filter |
+| **7 — Public engagement** | Planned | "Add your voice" — allow citizens to upvote issues via the UI |

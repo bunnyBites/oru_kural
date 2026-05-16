@@ -20,8 +20,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MAX_PAGES = 10
-MIN_ENGAGEMENT = 1
+MAX_PAGES: int = int(os.environ.get("X_MAX_PAGES", "3"))
+MIN_LIKES = 50
+MIN_REPLIES_WITH_TAG = 10
 UPSERT_BATCH_SIZE = 100
 SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
 CACHE_FILE = "last_fetch.json"
@@ -149,24 +150,58 @@ async def fetch_page(
 
 
 def has_engagement(tweet: dict[str, Any]) -> bool:
-    """Returns True if the tweet has any engagement signal."""
+    """Returns True if the tweet has proven public traction."""
     metrics = tweet.get("public_metrics", {})
-    return (
-        metrics.get("like_count", 0) >= MIN_ENGAGEMENT
-        or metrics.get("retweet_count", 0) >= MIN_ENGAGEMENT
-        or metrics.get("reply_count", 0) >= MIN_ENGAGEMENT
-    )
+    likes = metrics.get("like_count", 0)
+    replies = metrics.get("reply_count", 0)
+    text = tweet.get("text", "")
+    return likes >= MIN_LIKES or (replies >= MIN_REPLIES_WITH_TAG and "@CMOTamilnadu" in text)
 
 
-async def scrape_tweets(bearer_token: str) -> tuple[list[dict[str, Any]], int, int]:
+async def fetch_latest_x_signal_id(
+    client: httpx.AsyncClient,
+    supabase_url: str,
+    service_key: str,
+) -> str | None:
+    """Return the most recent X tweet ID stored in signals, to use as since_id next run."""
+    try:
+        resp = await client.get(
+            f"{supabase_url}/rest/v1/signals",
+            params={
+                "source": "eq.x",
+                "select": "id,posted_at",
+                "order": "posted_at.desc",
+                "limit": "1",
+            },
+            headers={
+                "apikey": service_key,
+                "Authorization": f"Bearer {service_key}",
+            },
+            timeout=15,
+        )
+        resp.raise_for_status()
+        rows = resp.json()
+        return rows[0]["id"] if rows else None
+    except Exception as exc:
+        print(f"warning: could not fetch latest signal ID (will do full fetch): {exc}")
+        return None
+
+
+async def scrape_tweets(bearer_token: str, since_id: str | None = None) -> tuple[list[dict[str, Any]], int, int]:
     """Returns (rows, page_count, skipped_count)."""
     params: dict[str, Any] = {
-        "query": "@CMOTamilnadu -is:retweet (lang:ta OR lang:en)",
+        "query": "@CMOTamilnadu -is:retweet -is:reply (lang:ta OR lang:en)",
         "max_results": 100,
         "tweet.fields": "created_at,author_id,text,public_metrics",
         "expansions": "author_id",
         "user.fields": "username,name",
     }
+
+    if since_id:
+        params["since_id"] = since_id
+        print(f"Incremental fetch: only tweets newer than ID {since_id}")
+    else:
+        print("Full fetch: no prior signals found — reading up to 7 days back")
 
     all_rows: list[dict[str, Any]] = []
     page_count = 0
@@ -193,12 +228,17 @@ async def scrape_tweets(bearer_token: str) -> tuple[list[dict[str, Any]], int, i
                     continue
 
                 user = users[author_id]
+                tweet_id = tweet["id"]
+                metrics = tweet.get("public_metrics", {})
                 all_rows.append({
-                    "id": tweet["id"],
+                    "id": tweet_id,
+                    "source": "x",
                     "author_handle": user["username"],
                     "author_name": user["name"],
                     "content": tweet["text"],
+                    "url": f"https://x.com/i/web/status/{tweet_id}",
                     "posted_at": tweet["created_at"],
+                    "score": metrics.get("like_count", 0),
                     "category": None,
                     "confidence": None,
                     "raw_json": tweet,
@@ -222,7 +262,7 @@ async def upsert_batch(
     rows: list[dict[str, Any]],
 ) -> None:
     resp = await client.post(
-        f"{supabase_url}/rest/v1/tweets",
+        f"{supabase_url}/rest/v1/signals",
         json=rows,
         headers={
             "apikey": service_key,
@@ -245,7 +285,7 @@ async def upsert_all(
         for i in range(0, len(rows), UPSERT_BATCH_SIZE):
             batch = rows[i : i + UPSERT_BATCH_SIZE]
             await upsert_batch(client, supabase_url, service_key, batch)
-            print(f"Upserted batch of {len(batch)} tweets")
+            print(f"Upserted batch of {len(batch)} signals")
     return len(rows)
 
 
@@ -299,7 +339,9 @@ async def main() -> None:
             print(f"Loaded {len(rows)} rows.")
         else:
             bearer_token: str = os.environ["X_BEARER_TOKEN"]
-            rows, page_count, skipped_count = await scrape_tweets(bearer_token)
+            async with httpx.AsyncClient() as lookup_client:
+                since_id = await fetch_latest_x_signal_id(lookup_client, supabase_url, service_key)
+            rows, page_count, skipped_count = await scrape_tweets(bearer_token, since_id=since_id)
             # Save before upserting so data is not lost if upsert fails
             with open(CACHE_FILE, "w", encoding="utf-8") as fh:
                 json.dump(rows, fh, ensure_ascii=False, indent=2)
@@ -323,7 +365,9 @@ async def main() -> None:
             return
 
         total_upserted = await upsert_all(supabase_url, service_key, rows)
-        print(f"Done. Total fetched: {total_fetched}. Total upserted: {total_upserted}.")
+        print(f"Done. Total fetched: {total_fetched}. Total upserted: {total_upserted}. Skipped (low traction): {skipped_count}.")
+        estimated_cost = total_fetched * 0.005
+        print(f"Estimated X API cost this run: ${estimated_cost:.2f}")
         await _complete(total_fetched, total_upserted, page_count)
 
     except Exception as e:

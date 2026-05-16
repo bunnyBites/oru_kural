@@ -22,6 +22,12 @@
   --color-tvk-text-secondary: #6B5B52;
   --color-tvk-text-dim:       #A89080;
 
+  /* ── Status colors ── */
+  --color-status-open:       #B83227;
+  --color-status-ack:        #C96A18;
+  --color-status-progress:   #1A6FA8;
+  --color-status-resolved:   #1E8A4A;
+
   /* ── Category badge colors ── */
   --color-cat-demand:        #B83227;
   --color-cat-complaint:     #C96A18;

@@ -1,35 +1,103 @@
 use serde::Deserialize;
 
-use crate::models::Tweet;
+use crate::models::{CategoryStat, CmEvent, Issue, Signal};
 
-const BACKEND: &str = "https://oru-kural-backend.fly.dev";
+const API_BASE: &str = match option_env!("API_BASE_URL") {
+    Some(url) => url,
+    None => "http://localhost:3000",
+};
 
 #[derive(Deserialize)]
-struct TweetPage {
-    data: Vec<Tweet>,
+struct PagedData<T> {
+    data: Vec<T>,
+    meta: Meta,
 }
 
-pub async fn fetch_tweets(category: Option<String>) -> Result<Vec<Tweet>, String> {
+#[derive(Deserialize)]
+struct Meta {
+    next_cursor: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct StatsData {
+    data: Vec<CategoryStat>,
+}
+
+#[derive(Deserialize)]
+struct IssueDetailData {
+    issue: Issue,
+    signals: Vec<Signal>,
+    linked_event: Option<CmEvent>,
+}
+
+pub async fn fetch_issues(
+    status: Option<String>,
+    category: Option<String>,
+    cursor: Option<String>,
+) -> Result<(Vec<Issue>, Option<String>), String> {
     let client = reqwest::Client::new();
-    let mut req = client.get(format!("{BACKEND}/api/tweets"));
-    if let Some(cat) = category {
-        req = req.query(&[("category", cat)]);
+    let mut req = client.get(format!("{API_BASE}/issues"));
+    if let Some(s) = status {
+        req = req.query(&[("status", s)]);
     }
-    req.send()
+    if let Some(c) = category {
+        req = req.query(&[("category", c)]);
+    }
+    if let Some(cur) = cursor {
+        req = req.query(&[("cursor", cur)]);
+    }
+
+    let page = req
+        .send()
         .await
         .map_err(|e| e.to_string())?
-        .json::<TweetPage>()
-        .await
-        .map(|p| p.data)
-        .map_err(|e| e.to_string())
-}
-
-pub async fn fetch_tweet(id: String) -> Result<Tweet, String> {
-    let resp = reqwest::get(format!("{BACKEND}/api/tweets/{id}"))
+        .json::<PagedData<Issue>>()
         .await
         .map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("HTTP {}", resp.status()));
+    Ok((page.data, page.meta.next_cursor))
+}
+
+pub async fn fetch_issue_detail(
+    id: i64,
+) -> Result<(Issue, Vec<Signal>, Option<CmEvent>), String> {
+    let resp = reqwest::get(format!("{API_BASE}/issues/{id}"))
+        .await
+        .map_err(|e| e.to_string())?
+        .json::<IssueDetailData>()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok((resp.issue, resp.signals, resp.linked_event))
+}
+
+pub async fn fetch_events(
+    cursor: Option<String>,
+    linked_only: bool,
+) -> Result<(Vec<CmEvent>, Option<String>), String> {
+    let client = reqwest::Client::new();
+    let mut req = client.get(format!("{API_BASE}/events"));
+    if linked_only {
+        req = req.query(&[("linked", "true")]);
     }
-    resp.json::<Tweet>().await.map_err(|e| e.to_string())
+    if let Some(cur) = cursor {
+        req = req.query(&[("cursor", cur)]);
+    }
+
+    let page = req
+        .send()
+        .await
+        .map_err(|e| e.to_string())?
+        .json::<PagedData<CmEvent>>()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok((page.data, page.meta.next_cursor))
+}
+
+pub async fn fetch_stats() -> Result<Vec<CategoryStat>, String> {
+    let data = reqwest::get(format!("{API_BASE}/stats"))
+        .await
+        .map_err(|e| e.to_string())?
+        .json::<StatsData>()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(data.data)
 }
