@@ -83,6 +83,7 @@ Fill in your values:
 | `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com) |
 | `X_BEARER_TOKEN` | [developer.x.com](https://developer.x.com) → App → Bearer Token |
 | `PORT` | Set to `3000` for local dev (backend); Fly.io uses `8080` |
+| `RUST_LOG` | Backend log level, e.g. `info` or `oru_kural_backend=debug` (default: `info`) |
 
 ### 3. Supabase: run all migrations
 
@@ -160,13 +161,16 @@ All routes return JSON. No authentication required (read-only, anon key via back
 | Method | Route | Query params | Response |
 |--------|-------|-------------|----------|
 | `GET` | `/health` | — | `{ status, service }` |
-| `GET` | `/issues` | `status`, `category`, `location`, `limit`, `cursor` | `PagedResponse<Issue>` |
+| `GET` | `/issues` | `status`, `category`, `location`, `search_query`, `limit`, `cursor` | `PagedResponse<Issue>` |
 | `GET` | `/issues/:id` | — | `{ issue, signals[], linked_event? }` |
 | `GET` | `/signals` | `source`, `category`, `q`, `limit`, `cursor` | `PagedResponse<Signal>` |
 | `GET` | `/events` | `category`, `linked`, `limit`, `cursor` | `PagedResponse<CmEvent>` |
 | `GET` | `/stats` | — | `{ data: CategoryStat[] }` |
 
-Pagination uses keyset cursors (base64-encoded timestamps). No `OFFSET`, no `COUNT(*)`.
+- Pagination uses keyset cursors (base64-encoded timestamps). No `OFFSET`, no `COUNT(*)`.
+- `limit` is clamped to `[1, 100]` server-side.
+- `search_query` runs a case-insensitive `OR` match across `title` and `summary`.
+- Every response carries an `X-Request-Id` header (UUID v4) for log correlation.
 
 ---
 
@@ -226,9 +230,9 @@ Migrations `002–008` are applied. Never re-run `001` (initial tweets table, no
 
 - **RLS must be configured** — migration `008` must be run in Supabase SQL editor. Without it, the anon key returns empty arrays from all tables (service role key bypasses RLS).
 - **Port conflict in local dev** — backend uses `:3000`, `dx serve` uses `:8080`. The frontend `API_BASE` defaults to `localhost:3000`. Do not run the backend on `:8080` locally or requests will hit the Dioxus dev server.
-- **`tailwind.css` is generated** — never edit `frontend/assets/tailwind.css` by hand. Run `npm run css` to regenerate. All custom colors use inline `style=` attributes (dynamic Tailwind class purging would strip them).
-- **Reddit API pending** — `scrape_reddit.py` uses the unauthenticated JSON fallback (`/r/Chennai.json`). Fill in `REDDIT_CLIENT_ID/SECRET` when approved to switch to the official API.
-- **`issues` table starts empty** — data only appears after running `cluster_issues.py` at least once. The scraping alone is not enough; clustering must run too.
+- **`tailwind.css` is generated** — never edit `frontend/assets/tailwind.css` by hand. Run `npm run css` to regenerate. Badge colors use named CSS classes in `input.css`; other dynamic color values use inline `style=` (dynamic Tailwind class names are purged at build time).
+- **Reddit API pending** — `scrape_reddit.py` uses the unauthenticated JSON fallback. Fill in `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT` when approved.
+- **`issues` table starts empty** — data only appears after running `cluster_issues.py` at least once. Scraping alone is not enough; clustering must run too.
 
 ---
 
@@ -238,8 +242,7 @@ Migrations `002–008` are applied. Never re-run `001` (initial tweets table, no
 |-------|--------|-------------|
 | **1 — Data pipeline** | Done | X API v2 + Reddit scraping → Supabase, Gemini categorization |
 | **2 — v3 Architecture** | Done | Unified signals table, issues clustering, CM events, Axum API, Dioxus 3-tab UI |
-| **3 — Polish & observability** | In progress | Dark mode theming, error toasts, structured backend logging (`tracing`), frontend API retry |
-| **4 — Auth & rate limiting** | Planned | Backend rate limiting (tower middleware), optional admin write API |
-| **5 — Signal expansion** | Planned | WhatsApp forwarded messages (manual upload), petitions, local news scraping |
-| **6 — Multilingual** | Planned | Tamil UI labels, translated signal display, language filter |
-| **7 — Public engagement** | Planned | "Add your voice" — allow citizens to upvote issues via the UI |
+| **3 — Polish & observability** | Done | Dark mode, error banners, API retry, structured logging (`tracing`), request IDs, Supabase timeouts, search, rate limiting, compression, request ID headers, signal deduplication, incremental clustering |
+| **4 — Signal expansion** | Planned | Reddit OAuth (PRAW), WhatsApp forwarded messages (manual upload), local news scraping |
+| **5 — Multilingual** | Planned | Tamil UI labels, translated signal display, language filter |
+| **6 — Public engagement** | Planned | "Add your voice" — allow citizens to upvote issues via the UI |

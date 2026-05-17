@@ -61,11 +61,18 @@ scripts/          Python async pipeline (httpx — never use requests library)
 backend/          Rust + Axum REST API (Supabase REST proxy)
   src/models.rs         Signal, Issue, CmEvent, CategoryStat + response envelopes
   src/handlers.rs       6 handlers: health, list_issues, get_issue, list_signals, list_events, get_stats
-  src/main.rs           AppState{client, supabase_url, supabase_key}, router, CORS via FRONTEND_ORIGIN
+                        fetch_json<T> helper enforces 10s Supabase timeout (504 on breach)
+  src/main.rs           AppState{client, supabase_url, supabase_key}, router, middleware stack:
+                          SetRequestIdLayer (UUID v4 → x-request-id header)
+                          TraceLayer (structured span per request with method, uri, request_id)
+                          PropagateRequestIdLayer (copies x-request-id to response)
+                          CompressionLayer (gzip + brotli)
+                          CorsLayer (FRONTEND_ORIGIN or permissive in dev)
+                          GovernorLayer (1 req/sec sustained, burst 20 per IP → 429)
 
   Routes (no /api/ prefix):
     GET /health          → { status, service }
-    GET /issues          → PagedResponse<Issue>  (status, category, location, limit, cursor)
+    GET /issues          → PagedResponse<Issue>  (status, category, location, search_query, limit, cursor)
     GET /issues/:id      → { issue, signals[], linked_event? }
     GET /signals         → PagedResponse<Signal> (source, category, q, limit, cursor)
     GET /events          → PagedResponse<CmEvent>(category, linked, limit, cursor)
@@ -79,7 +86,7 @@ frontend/         Rust + Dioxus 0.7 (compiles to WASM)
     app_shell.rs        Root — provides AppCtx{active_tab, dark_mode} via context
     header.rs           Brand + tab nav + dark mode toggle
     issues_board.rs     Tab 1 — issues grid with filters, pagination, detail panel
-    filter_bar.rs       Status + category pills + search input
+    filter_bar.rs       Status + category pills + search input (300ms debounce via gloo_timers)
     issue_card.rs       Issue card (3-section flex layout, animate-card-enter)
     issue_detail.rs     Expanded view — signals + linked CM event
     events_feed.rs      Tab 2 — CM events list with linked-only filter
@@ -87,8 +94,8 @@ frontend/         Rust + Dioxus 0.7 (compiles to WASM)
     stats_panel.rs      Tab 3 — category breakdown fetched from /stats
     signal_card.rs      Signal card (used inside issue_detail)
     skeleton_card.rs    Shimmer loading placeholder (3-section layout)
-    status_badge.rs     Status pill with inline style colors
-    category_badge.rs   Category pill with inline style colors
+    status_badge.rs     Status pill — named CSS classes (badge-status-*) with dark mode variants
+    category_badge.rs   Category pill — named CSS classes (badge-*) with dark mode variants
     source_badge.rs     X / Reddit source indicator
   assets/tailwind.css   Generated — never edit by hand
   input.css             Tailwind v4 config: @import, @theme, @layer base, animations
@@ -104,13 +111,13 @@ frontend/         Rust + Dioxus 0.7 (compiles to WASM)
 
 **Local dev port split** — backend runs on `:3000` (set via `PORT=3000` in `.env`), Dioxus dev server runs on `:8080`. The frontend `API_BASE` defaults to `http://localhost:3000`. Do not run the backend on `:8080` locally; it will conflict with `dx serve` and the frontend will receive HTML instead of JSON. In production (Fly.io), the backend runs on `:8080` — set `API_BASE_URL` at Vercel build time.
 
-**Dioxus reactivity pattern** — `use_effect` reads filter signals synchronously before spawning async fetch. Reading signals inside `use_effect` closure body creates subscriptions; reading inside `spawn(async move {...})` does not. This makes filter changes auto-trigger refetches.
+**Dioxus reactivity pattern** — `use_effect` reads filter signals synchronously before spawning async fetch. Reading signals inside `use_effect` closure body creates subscriptions; reading inside `spawn(async move {...})` does not. This makes filter changes auto-trigger refetches. Search query is debounced 300 ms in `filter_bar.rs` using a version counter + `gloo_timers::future::sleep` before the parent signal updates, so the API is only called after the user pauses typing.
 
-**Dark mode** — toggled via `document.documentElement.setAttribute('data-theme','dark')`, persisted in `localStorage`. AppCtx provides `dark_mode: Signal<bool>` via context; Header reads it and applies the JS via `document::eval()`. CSS `data-theme` dark variables are not yet fully wired — this is a known gap.
+**Dark mode** — toggled via `document.documentElement.setAttribute('data-theme','dark')`, persisted in `localStorage`. AppCtx provides `dark_mode: Signal<bool>` via context; Header reads it and applies the JS via `document::eval()`. All surface tokens and badge colors have `[data-theme="dark"]` overrides in `input.css`. Badge components use named CSS classes (`badge-*`, `badge-status-*`) rather than inline styles so dark variants apply automatically.
 
 **Global state** — `AppCtx { active_tab, dark_mode }` provided at AppShell via `use_context_provider`. Each tab (IssuesBoard, EventsFeed, StatsPanel) owns its own data signals locally — no prop drilling of data.
 
-**Tailwind v4** — CSS config in `input.css` (`@import "tailwindcss"` first line, `@source`, `@theme` for custom tokens). No `tailwind.config.js`. All status/category/brand colors use inline `style=` in components (dynamic classes not purged at build time). Never add dynamic Tailwind classes; use `style=` instead.
+**Tailwind v4** — CSS config in `input.css` (`@import "tailwindcss"` first line, `@source`, `@theme` for custom tokens). No `tailwind.config.js`. Badge colors use static named CSS classes defined in `input.css` (not inline `style=`). For any other dynamic/computed color values, use inline `style=` — dynamic Tailwind class names are purged at build time and will not render.
 
 **LLM abstraction** — All classification calls go through `scripts/llm.py`. Never call `google-generativeai` directly. Set `OPENROUTER_API_KEY` to switch providers without code changes.
 
@@ -133,6 +140,7 @@ All vars live in `.env` at the repo root (copy from `.env.example`). `dotenvy` i
 | `X_MAX_PAGES` | `scrape_tweets.py` | Pages to fetch; default 3, set 10 in prod |
 | `PORT` | Backend | `3000` in local `.env`; `8080` on Fly.io |
 | `FRONTEND_ORIGIN` | Backend | CORS allowed origin; omit for permissive CORS in dev |
+| `RUST_LOG` | Backend | Tracing filter, e.g. `info` or `oru_kural_backend=debug`; defaults to `info` |
 | `API_BASE_URL` | Frontend (compile-time) | Backend URL baked in at `dx build`; defaults to `http://localhost:3000` |
 
 ## Supabase migrations
@@ -161,14 +169,11 @@ Applied in order (never re-run):
 
 ## Known gaps / future work
 
-These are not done and are safe to implement:
+Only one item remains open:
 
-- **Dark mode CSS** — `data-theme` toggle is wired but the dark-mode CSS variables in `input.css` are incomplete. Need to fill in `[data-theme="dark"]` overrides for all `--tvk-*` tokens.
-- **Error toasts** — API call failures in the frontend only log to `eprintln!`. Should surface a user-visible error message (Dioxus toast or inline error state).
-- **Frontend API retry** — no retry on transient network failures in `api.rs`. A simple exponential backoff with 2–3 attempts would help.
-- **Structured logging in backend** — `eprintln!` only. Replace with `tracing` + `tracing-subscriber` for structured logs that Fly.io can stream.
-- **Backend tests** — zero `#[test]` functions. At minimum, test handler deserialization against Supabase response shapes.
-- **Rate limiting** — backend has no rate limiting. Add `tower_governor` middleware before any public launch.
-- **Reddit OAuth** — `scrape_reddit.py` uses unauthenticated JSON fallback. Wire up `REDDIT_CLIENT_ID/SECRET` when API access is approved.
-- **`issues` table needs pipeline to run** — the Issues Board tab stays empty until `cluster_issues.py` has been run at least once. This is expected behavior, not a bug.
-- **GitHub Actions workflow gap** — `weekly_scrape.yml` step 2 still references `categorize_tweets.py` (v2 legacy). The active v3 categorizer is `categorize_signals.py` (step 5 in the same workflow). The legacy step is harmless but redundant.
+- **Reddit OAuth** — `scrape_reddit.py` uses the unauthenticated JSON fallback. Wire up `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT` when API access is approved (see T-11 in `tasks.md`).
+
+Everything else that was tracked has been implemented. A few operational notes that are expected behaviour, not bugs:
+
+- **`issues` table starts empty** — the Issues Board tab stays empty until `cluster_issues.py` has been run at least once. Scraping alone is not enough; clustering must run too.
+- **CORS permissive in dev** — the backend allows all origins when `FRONTEND_ORIGIN` is not set. This is intentional; production always sets the env var.
