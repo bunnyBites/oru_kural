@@ -3,6 +3,13 @@ name = "oru-kural-frontend"
 version = "0.1.0"
 edition = "2024"
 
+[profile.release]
+debug = 0
+
+[profile.wasm-release]
+inherits = "release"
+debug = 0
+
 [dependencies]
 dioxus = { version = "0.7", features = ["web", "router"] }
 serde = { version = "1", features = ["derive"] }
