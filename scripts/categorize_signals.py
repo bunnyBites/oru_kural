@@ -25,9 +25,14 @@ _CATEGORIZE_PROMPT = """\
 You are processing Tamil Nadu public posts mentioning the Chief Minister (@CMOTamilnadu).
 Posts may be from X (Twitter) or Reddit — treat them identically.
 
+Context (2026): The current CM is Vijay (TVK party), sworn in May 10, 2026.
+Key active schemes: Vetri Nichayam (skill training), Tamizh Pudhalvan (student scholarship),
+Neengal Nalama (welfare verification), Vetri TN Super App (unified govt services),
+Mudhalvar Makkal Sevai Nanbar (doorstep delivery). CM Helpline: 1100 / cmhelpline.tnega.org.
+
 For each post, do TWO things:
 1. Classify into EXACTLY ONE category:
-   [Demand, Complaint, Public Event, Welcome, Infrastructure, Health, Education, Criticism, Other]
+   [Demand, Complaint, Public Event, Welcome, Infrastructure, Health, Education, Welfare Scheme, Criticism, Other]
 2. Translate to English. If already in English, copy as-is.
 
 Return ONLY valid JSON. No explanation. No markdown.

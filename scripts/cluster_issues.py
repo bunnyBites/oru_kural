@@ -22,12 +22,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BATCH_SIZE = 30
-CLUSTER_CATEGORIES = ["Infrastructure", "Health", "Education", "Demand", "Complaint"]
+CLUSTER_CATEGORIES = ["Infrastructure", "Health", "Education", "Demand", "Complaint", "Welfare Scheme"]
 MAX_EXISTING_ISSUES = 50
 
 _CLUSTER_PROMPT = """\
 You are analyzing Tamil Nadu public posts mentioning the Chief Minister (@CMOTamilnadu).
 Posts may be from X (Twitter) or Reddit — treat them identically.
+
+Context (2026): CM is Vijay (TVK party), sworn in May 10, 2026.
+Active schemes: Vetri Nichayam (skill training), Tamizh Pudhalvan (student scholarship ₹1000/month),
+Neengal Nalama (govt welfare verification outreach), Vetri TN Super App (100+ unified services),
+Mudhalvar Makkal Sevai Nanbar (doorstep delivery by 5 lakh youth).
+When posts reference these schemes by name, prefer category "Welfare Scheme".
 
 TASK 1 — GROUP new posts into issues:
 Group posts that describe the SAME specific problem or demand.
@@ -41,7 +47,7 @@ For each group return:
 - existing_issue_id: integer if merging, null if new
 - title: concise English title max 10 words (only if new — omit if merging)
 - summary: 1-2 sentence synthesis of citizen demand (only if new — omit if merging)
-- category: one of [Infrastructure, Health, Education, Demand, Complaint, Other]
+- category: one of [Infrastructure, Health, Education, Demand, Complaint, Welfare Scheme, Other]
 - location: specific location or null
 - department: relevant govt department or null
 - signal_ids: list of signal IDs in this group

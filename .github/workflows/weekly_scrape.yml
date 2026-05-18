@@ -1,4 +1,4 @@
-name: Weekly Tweet Scraper
+name: Weekly Scraper
 
 on:
   schedule:
@@ -30,14 +30,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
-      - name: Run tweet scraper (X API v2)
+      # X API costs ~$100/month — only runs when X_BEARER_TOKEN secret is set.
+      # Remove the secret from GitHub → Settings → Secrets to disable permanently.
+      - name: Scrape X (@CMOTamilnadu) — skipped if no token
+        if: ${{ secrets.X_BEARER_TOKEN != '' }}
         timeout-minutes: 10
+        continue-on-error: true
         env:
           X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          X_MAX_PAGES: "10"
+          X_MAX_PAGES: "2"
+          X_MAX_RESULTS: "25"
         run: python scripts/scrape_tweets.py
 
       - name: Run Reddit signal scraper
@@ -48,13 +53,21 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: python scripts/scrape_reddit.py
 
-      - name: Scrape CM events (TN Gov RSS + The Hindu TN)
+      - name: Scrape CM events (TN Gov RSS + The Hindu TN + Chennai District + TN NIC)
         timeout-minutes: 10
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python scripts/scrape_cm_events.py
+
+      - name: Scrape CM Helpline + GCC grievance stats
+        timeout-minutes: 10
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/scrape_grievances.py
 
       - name: Categorize all new signals (X + Reddit)
         timeout-minutes: 10
