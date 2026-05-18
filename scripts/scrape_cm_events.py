@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import random
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -26,14 +27,24 @@ RSS_FEEDS: list[tuple[str, str]] = [
     ("https://www.thehindu.com/news/national/tamil-nadu/?service=rss", "The Hindu TN"),
 ]
 
+# HTML sources scraped directly (no RSS available)
+# Each entry: (url, source_name)
+HTML_SOURCES: list[tuple[str, str]] = [
+    ("https://chennai.nic.in/category/press-release/", "Chennai District"),
+    ("https://tn.nic.in/events/", "TN NIC Events"),
+]
+
 ENRICH_BATCH_SIZE = 20
 
 _ENRICH_PROMPT = """\
 You are analyzing Tamil Nadu government press releases and news articles.
+Context (2026): CM is Vijay (TVK party). Key active schemes: Vetri Nichayam, Tamizh Pudhalvan,
+Neengal Nalama, Vetri TN Super App, Mudhalvar Makkal Sevai Nanbar.
+
 For each article, extract:
 - location: specific place in Tamil Nadu mentioned, or null
 - department: relevant government department (e.g. "PWD", "Health Dept"), or null
-- category: one of [Infrastructure, Health, Education, Public Event, Other]
+- category: one of [Infrastructure, Health, Education, Welfare Scheme, Public Event, Other]
 
 Return ONLY valid JSON. No explanation. No markdown.
 Format:
@@ -77,6 +88,50 @@ def parse_feeds() -> list[dict[str, Any]]:
                 })
         except Exception as exc:
             print(f"  warning: failed to parse {source_name}: {exc}")
+    return events
+
+
+async def scrape_html_sources(client: httpx.AsyncClient) -> list[dict[str, Any]]:
+    """Scrape HTML press-release pages that lack RSS feeds."""
+    events: list[dict[str, Any]] = []
+    for url, source_name in HTML_SOURCES:
+        try:
+            resp = await client.get(url, timeout=20, follow_redirects=True,
+                                    headers={"User-Agent": "OruKural/2.0 civic-dashboard"})
+            if not resp.is_success:
+                print(f"  {source_name}: HTTP {resp.status_code} — skipping")
+                continue
+            html = resp.text
+            # Extract <a href="...">...</a> pairs from article/post listings.
+            # Both chennai.nic.in (WordPress) and tn.nic.in use anchor-based listings.
+            anchors = re.findall(
+                r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
+                html, re.DOTALL | re.IGNORECASE
+            )
+            seen: set[str] = set()
+            for href, raw_title in anchors:
+                title = re.sub(r"<[^>]+>", "", raw_title).strip()
+                # Skip navigation links, empty titles, and off-domain URLs
+                if (not title or len(title) < 10
+                        or href in seen
+                        or href.startswith("#")
+                        or ("http" in href and source_name.split()[0].lower() not in href)):
+                    continue
+                seen.add(href)
+                full_url = href if href.startswith("http") else url.rstrip("/") + "/" + href.lstrip("/")
+                events.append({
+                    "title": title[:300],
+                    "description": "",
+                    "event_date": None,
+                    "source_url": full_url,
+                    "source_name": source_name,
+                    "location": None,
+                    "department": None,
+                    "category": None,
+                })
+            print(f"  {source_name}: {len(seen)} entries")
+        except Exception as exc:
+            print(f"  warning: failed to scrape {source_name}: {exc}")
     return events
 
 
@@ -172,6 +227,11 @@ async def main() -> None:
     try:
         print("Parsing RSS feeds…")
         events = parse_feeds()
+
+        print("Scraping HTML sources…")
+        async with httpx.AsyncClient() as html_client:
+            html_events = await scrape_html_sources(html_client)
+        events.extend(html_events)
         print(f"  total raw events: {len(events)}")
 
         if not events:

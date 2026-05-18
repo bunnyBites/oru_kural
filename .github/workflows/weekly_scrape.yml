@@ -48,13 +48,21 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: python scripts/scrape_reddit.py
 
-      - name: Scrape CM events (TN Gov RSS + The Hindu TN)
+      - name: Scrape CM events (TN Gov RSS + The Hindu TN + Chennai District + TN NIC)
         timeout-minutes: 10
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python scripts/scrape_cm_events.py
+
+      - name: Scrape CM Helpline + GCC grievance stats
+        timeout-minutes: 10
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/scrape_grievances.py
 
       - name: Categorize all new signals (X + Reddit)
         timeout-minutes: 10
