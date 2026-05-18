@@ -21,7 +21,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MAX_PAGES: int = int(os.environ.get("X_MAX_PAGES", "3"))
+MAX_PAGES: int = int(os.environ.get("X_MAX_PAGES", "1"))
+MAX_RESULTS_PER_PAGE: int = int(os.environ.get("X_MAX_RESULTS", "25"))
 MIN_LIKES = 50
 MIN_REPLIES_WITH_TAG = 10
 UPSERT_BATCH_SIZE = 100
@@ -190,9 +191,12 @@ async def fetch_latest_x_signal_id(
 
 async def scrape_tweets(bearer_token: str, since_id: str | None = None) -> tuple[list[dict[str, Any]], int, int]:
     """Returns (rows, page_count, skipped_count)."""
+    # min_faves:50 pushes the engagement filter to the X API side so we never
+    # fetch (and pay for) low-engagement tweets. Local has_engagement() is kept
+    # as a second gate for the replies path which min_faves doesn't cover.
     params: dict[str, Any] = {
-        "query": "@CMOTamilnadu -is:retweet -is:reply (lang:ta OR lang:en)",
-        "max_results": 100,
+        "query": f"@CMOTamilnadu -is:retweet -is:reply (lang:ta OR lang:en) min_faves:{MIN_LIKES}",
+        "max_results": max(10, min(MAX_RESULTS_PER_PAGE, 100)),
         "tweet.fields": "created_at,author_id,text,public_metrics",
         "expansions": "author_id",
         "user.fields": "username,name",

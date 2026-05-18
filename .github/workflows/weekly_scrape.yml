@@ -1,4 +1,4 @@
-name: Weekly Tweet Scraper
+name: Weekly Scraper
 
 on:
   schedule:
@@ -30,14 +30,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
-      - name: Run tweet scraper (X API v2)
+      # X API costs ~$100/month — only runs when X_BEARER_TOKEN secret is set.
+      # Remove the secret from GitHub → Settings → Secrets to disable permanently.
+      - name: Scrape X (@CMOTamilnadu) — skipped if no token
+        if: ${{ secrets.X_BEARER_TOKEN != '' }}
         timeout-minutes: 10
+        continue-on-error: true
         env:
           X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          X_MAX_PAGES: "10"
+          X_MAX_PAGES: "2"
+          X_MAX_RESULTS: "25"
         run: python scripts/scrape_tweets.py
 
       - name: Run Reddit signal scraper

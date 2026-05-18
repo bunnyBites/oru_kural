@@ -87,7 +87,7 @@ fi
 
 # Warn (don't fail) about optional keys
 [[ -z "${GEMINI_API_KEY:-}"   ]] && warn "GEMINI_API_KEY not set — Gemini steps will fail"
-[[ -z "${X_BEARER_TOKEN:-}"   ]] && warn "X_BEARER_TOKEN not set — tweet scraper will fail (use --dry-run)"
+[[ -z "${X_BEARER_TOKEN:-}"   ]] && warn "X_BEARER_TOKEN not set — X scrape step will be skipped"
 
 info "Preflight OK"
 
