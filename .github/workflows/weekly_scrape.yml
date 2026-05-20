@@ -9,6 +9,8 @@ jobs:
   scrape-and-categorize:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
 
     steps:
       - name: Checkout code
@@ -33,7 +35,7 @@ jobs:
       # X API costs ~$100/month — only runs when X_BEARER_TOKEN secret is set.
       # Remove the secret from GitHub → Settings → Secrets to disable permanently.
       - name: Scrape X (@CMOTamilnadu) — skipped if no token
-        if: ${{ secrets.X_BEARER_TOKEN != '' }}
+        if: ${{ env.X_BEARER_TOKEN != '' }}
         timeout-minutes: 10
         continue-on-error: true
         env:
