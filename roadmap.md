@@ -19,14 +19,14 @@ Goal: drop scraping costs to near-zero, add new civic signal sources, ship Tamil
 
 | # | Milestone | Status |
 |---|---|---|
-| M1 | Replace X API v2 with `twscrape` in `scrape_tweets.py` | TODO |
+| M1 | Replace X API v2 with `twscrape` in `scrape_tweets.py` | **Done** |
 | M2 | `scrape_grievances.py` — CM Helpline + GCC PGR stats as synthetic signals | **Done** |
-| M3 | `scrape_instagram.py` — CMO Instagram → `cm_events` table | TODO |
-| M4 | `scrape_telegram.py` — public district Telegram channels → `signals` table | TODO |
-| M5 | Migration 010 — `title_ta`, `summary_ta` columns on `issues` | TODO |
-| M6 | Update `cluster_issues.py` — Gemini Tamil generation pass | TODO |
-| M7 | Frontend Tamil/English toggle | TODO |
-| M8 | GitHub Actions workflow updates for new scripts | Partial |
+| M3 | `scrape_instagram.py` — CMO Instagram → `cm_events` table | Deferred |
+| M4 | `scrape_telegram.py` — public district Telegram channels → `signals` table | Deferred |
+| M5 | Migration 010 — `title_ta`, `summary_ta` columns on `issues` | **Done** |
+| M6 | Update `cluster_issues.py` — Gemini Tamil generation pass | **Done** |
+| M7 | Frontend Tamil/English toggle | **Done** |
+| M8 | GitHub Actions workflow updates for new scripts | **Done** |
 | M9 | Custom domain setup | TODO |
 
 ---
