@@ -21,10 +21,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-BATCH_SIZE = 30
+BATCH_SIZE = 15              # signals per Gemini call — keep prompt under ~8k tokens
 TAMIL_BATCH_SIZE = 20
 CLUSTER_CATEGORIES = ["Infrastructure", "Health", "Education", "Demand", "Complaint", "Welfare Scheme"]
-MAX_EXISTING_ISSUES = 50
+MAX_EXISTING_ISSUES = 25    # existing issues sent as merge context per batch
 
 _CLUSTER_PROMPT = """\
 You are analyzing Tamil Nadu public posts mentioning the Chief Minister (@CMOTamilnadu).
@@ -187,14 +187,19 @@ async def cluster_with_gemini(
     signals_payload = [
         {
             "id": s["id"],
-            "content": s.get("translated_content") or s["content"],
+            "content": (s.get("translated_content") or s["content"])[:300],
             "category": s["category"],
             "source": s.get("source", "x"),
         }
         for s in signals
     ]
     issues_payload = [
-        {"id": i["id"], "title": i["title"], "summary": i["summary"], "location": i["location"]}
+        {
+            "id": i["id"],
+            "title": i["title"],
+            "summary": (i.get("summary") or "")[:150],
+            "location": i["location"],
+        }
         for i in existing_issues
     ]
 
