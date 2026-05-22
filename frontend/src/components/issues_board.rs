@@ -68,10 +68,8 @@ pub fn IssuesBoard() -> Element {
 
             if let Some(msg) = error_msg {
                 div {
-                    class: "flex items-center justify-between gap-3 rounded-lg border \
-                            border-red-200 bg-red-50 px-4 py-3 text-sm font-body \
-                            text-red-700 cursor-pointer",
-                    style: "border-color: #B8322740; background-color: #B8322710; color: #B83227;",
+                    class: "alert-error flex items-center justify-between gap-3 rounded-lg \
+                            px-4 py-3 text-sm font-body cursor-pointer",
                     onclick: move |_| {
                         let status = status_filter.read().clone();
                         let category = category_filter.read().clone();
@@ -155,8 +153,7 @@ pub fn IssuesBoard() -> Element {
         // Drawer modal — rendered outside the scrolling content flow
         if let Some(id) = selected {
             div {
-                class: "fixed inset-0 z-50 animate-fade-in",
-                style: "background: rgba(0,0,0,0.45); backdrop-filter: blur(2px);",
+                class: "modal-overlay fixed inset-0 z-50 animate-fade-in",
                 onclick: move |_| selected_issue_id.set(None),
 
                 div {

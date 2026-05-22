@@ -31,6 +31,8 @@ pub struct Issue {
     pub last_updated_at: Option<String>,
     pub linked_event_id: Option<i64>,
     pub resolution_note: Option<String>,
+    pub title_ta: Option<String>,
+    pub summary_ta: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,7 +116,8 @@ mod tests {
             "category":"Infrastructure","location":null,"department":null,
             "status":"open","voice_count":5,
             "first_raised_at":"2024-01-01T00:00:00Z",
-            "last_updated_at":null,"linked_event_id":null,"resolution_note":null
+            "last_updated_at":null,"linked_event_id":null,"resolution_note":null,
+            "title_ta":null,"summary_ta":null
         }"#;
         let i: Issue = serde_json::from_str(json).unwrap();
         assert_eq!(i.id, 1);

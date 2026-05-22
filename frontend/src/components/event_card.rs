@@ -15,8 +15,7 @@ pub fn EventCard(event: CmEvent) -> Element {
                 }
                 if event.linked_issue_id.is_some() {
                     span {
-                        class: "text-xs font-body shrink-0 px-2 py-0.5 rounded-full",
-                        style: "color: #1A6FA8; background: #1A6FA818; border: 1px solid #1A6FA840;",
+                        class: "badge-linked text-xs font-body shrink-0 px-2 py-0.5 rounded-full",
                         "Linked"
                     }
                 }

@@ -64,9 +64,8 @@ pub fn EventsFeed() -> Element {
 
             if let Some(msg) = error_msg {
                 div {
-                    class: "flex items-center justify-between gap-3 rounded-lg px-4 py-3 \
-                            text-sm font-body cursor-pointer",
-                    style: "border: 1px solid #B8322740; background-color: #B8322710; color: #B83227;",
+                    class: "alert-error flex items-center justify-between gap-3 rounded-lg \
+                            px-4 py-3 text-sm font-body cursor-pointer",
                     onclick: move |_| {
                         let lo_val = *linked_only.read();
                         error.set(None);

@@ -29,6 +29,8 @@ pub struct Issue {
     pub last_updated_at: Option<String>,
     pub linked_event_id: Option<i64>,
     pub resolution_note: Option<String>,
+    pub title_ta: Option<String>,
+    pub summary_ta: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Deserialize)]
