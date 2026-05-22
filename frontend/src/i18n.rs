@@ -159,3 +159,22 @@ static TA: Translations = Translations {
 pub fn get(tamil: bool) -> &'static Translations {
     if tamil { &TA } else { &EN }
 }
+
+impl Translations {
+    /// Translate a category API value (e.g. "Infrastructure") to its display label.
+    pub fn category_label(&self, val: &str) -> &'static str {
+        match val {
+            "Infrastructure"  => self.cat_infrastructure,
+            "Health"          => self.cat_health,
+            "Education"       => self.cat_education,
+            "Demand"          => self.cat_demand,
+            "Complaint"       => self.cat_complaint,
+            "Public Event"    => self.cat_public_event,
+            "Welcome"         => self.cat_welcome,
+            "Criticism"       => self.cat_criticism,
+            "Welfare Scheme"  => self.cat_welfare,
+            "Other"           => self.cat_other,
+            _                 => self.cat_other, // safe fallback
+        }
+    }
+}

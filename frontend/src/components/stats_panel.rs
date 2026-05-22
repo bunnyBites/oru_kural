@@ -42,6 +42,7 @@ pub fn StatsPanel() -> Element {
                         for stat in rows {
                             {
                                 let category = stat.category.clone();
+                                let category_label = t.category_label(&stat.category);
                                 let has_issues = stat.issue_count > 0;
                                 let pct = if total > 0 {
                                     (stat.tweet_count * 100 / total).min(100)
@@ -74,7 +75,7 @@ pub fn StatsPanel() -> Element {
                                             p { class: "text-xs font-body font-medium text-tvk-text-dim \
                                                         uppercase tracking-wider group-hover:text-tvk-maroon \
                                                         transition-colors duration-200",
-                                                "{stat.category}"
+                                                "{category_label}"
                                             }
                                             if has_issues {
                                                 span { class: "text-xs text-tvk-maroon opacity-0 \
