@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 BATCH_SIZE = 30
+TAMIL_BATCH_SIZE = 20
 CLUSTER_CATEGORIES = ["Infrastructure", "Health", "Education", "Demand", "Complaint", "Welfare Scheme"]
 MAX_EXISTING_ISSUES = 50
 
@@ -69,6 +70,25 @@ Existing open issues (for merge context):
 
 New posts to cluster:
 {signals_json}\
+"""
+
+
+_TAMIL_PROMPT = """\
+You are translating Tamil Nadu civic issue summaries from English to Tamil (தமிழ்).
+
+For each issue produce:
+- title_ta: Tamil translation of the title, max 12 words, natural and concise
+- summary_ta: 1-2 sentence Tamil synthesis of the citizen demand
+
+Use formal written Tamil (நடை). Avoid transliteration — use Tamil script.
+Place names (Chennai, Coimbatore, etc.) and abbreviations (CM, TVK, etc.) can stay as-is.
+
+Return ONLY valid JSON. No explanation. No markdown.
+Format:
+[{{"id": <int>, "title_ta": "...", "summary_ta": "..."}}]
+
+Issues to translate:
+{issues_json}\
 """
 
 
@@ -288,6 +308,113 @@ async def link_signals(
         print(f"  warning: signal_issue_map upsert failed: {resp.text}")
 
 
+async def fetch_issues_without_tamil(
+    client: httpx.AsyncClient, anon_key: str, supabase_url: str
+) -> list[dict[str, Any]]:
+    resp = await client.get(
+        f"{supabase_url}/rest/v1/issues",
+        params={
+            "title_ta": "is.null",
+            "select": "id,title,summary",
+            "order": "last_updated_at.desc",
+            "limit": "200",
+        },
+        headers={"apikey": anon_key, "Authorization": f"Bearer {anon_key}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+async def translate_batch_to_tamil(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    from google import genai
+
+    model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+
+    payload = [{"id": i["id"], "title": i["title"], "summary": i.get("summary") or ""} for i in issues]
+    prompt = _TAMIL_PROMPT.format(issues_json=json.dumps(payload, ensure_ascii=False))
+
+    for attempt in range(4):
+        try:
+            response = await client.aio.models.generate_content(model=model_name, contents=prompt)
+            text = response.text.strip()
+            if text.startswith("```"):
+                lines = text.splitlines()
+                text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+            return json.loads(text)
+        except Exception as exc:
+            print(f"  Tamil translation attempt {attempt + 1} failed: {exc}")
+            if attempt < 3:
+                await backoff_sleep(attempt)
+            else:
+                raise
+    raise RuntimeError("Tamil translation failed after 4 attempts")
+
+
+async def generate_tamil_for_issues(
+    service_key: str, anon_key: str, supabase_url: str
+) -> None:
+    """
+    Translate title/summary for every issue where title_ta IS NULL.
+    Runs as a back-fill on first execution after migration 010 and fills
+    newly created issues on subsequent runs.
+    Failures are logged but never propagate — Tamil is non-blocking.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            issues = await fetch_issues_without_tamil(client, anon_key, supabase_url)
+    except Exception as exc:
+        print(f"Tamil pass: could not fetch issues (migration 010 applied?) — skipping: {exc}")
+        return
+
+    if not issues:
+        print("Tamil pass: all issues already have translations — skipping.")
+        return
+
+    total = len(issues)
+    total_batches = (total + TAMIL_BATCH_SIZE - 1) // TAMIL_BATCH_SIZE
+    print(f"Tamil pass: translating {total} issue(s) in {total_batches} batch(es)...")
+
+    patched = 0
+    for batch_start in range(0, total, TAMIL_BATCH_SIZE):
+        batch = issues[batch_start : batch_start + TAMIL_BATCH_SIZE]
+        batch_num = batch_start // TAMIL_BATCH_SIZE + 1
+        try:
+            results = await translate_batch_to_tamil(batch)
+        except Exception as exc:
+            print(f"  Tamil batch {batch_num}/{total_batches} failed — skipping: {exc}")
+            continue
+
+        id_set = {i["id"] for i in batch}
+        async with httpx.AsyncClient() as client:
+            for row in results:
+                issue_id = row.get("id")
+                title_ta = (row.get("title_ta") or "").strip()
+                summary_ta = (row.get("summary_ta") or "").strip()
+                if not issue_id or issue_id not in id_set:
+                    print(f"  warning: Tamil result has unknown issue id {issue_id!r} — skipping")
+                    continue
+                if not title_ta:
+                    print(f"  warning: empty title_ta for issue {issue_id} — skipping")
+                    continue
+                resp = await client.patch(
+                    f"{supabase_url}/rest/v1/issues",
+                    params={"id": f"eq.{issue_id}"},
+                    json={"title_ta": title_ta, "summary_ta": summary_ta},
+                    headers={**_supa_headers(service_key), "Prefer": "return=minimal"},
+                    timeout=15,
+                )
+                if resp.is_success:
+                    patched += 1
+                else:
+                    print(f"  warning: patch tamil fields for issue {issue_id} failed: {resp.text}")
+
+        print(f"  Tamil batch {batch_num}/{total_batches}: translated")
+
+    print(f"Tamil pass done. Patched {patched}/{total} issue(s).")
+
+
 async def main() -> None:
     supabase_url = os.environ["SUPABASE_URL"].rstrip("/").removesuffix("/rest/v1")
     service_key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -389,6 +516,8 @@ async def main() -> None:
                 )
                 if not resp.is_success:
                     print(f"  warning: refresh_issue_stats failed: {resp.status_code}")
+
+        await generate_tamil_for_issues(service_key, anon_key, supabase_url)
 
         print(f"Done. Signals clustered: {total_linked}. New issues: {total_created}. Issues updated: {total_merged}.")
 
