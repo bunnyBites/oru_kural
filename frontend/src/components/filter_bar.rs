@@ -3,23 +3,14 @@ use std::time::Duration;
 use dioxus::prelude::*;
 use gloo_timers::future::sleep;
 
-const STATUSES: &[(&str, &str)] = &[
-    ("open", "Open"),
-    ("acknowledged", "Acknowledged"),
-    ("in_progress", "In Progress"),
-    ("resolved", "Resolved"),
-];
+use crate::i18n;
+use super::app_shell::AppCtx;
 
-const CATEGORIES: &[&str] = &[
-    "Infrastructure",
-    "Health",
-    "Education",
-    "Demand",
-    "Complaint",
-    "Public Event",
-    "Welcome",
-    "Criticism",
-    "Other",
+// API values — never change these; they are sent to the backend as filter params.
+const STATUS_VALS: &[&str] = &["open", "acknowledged", "in_progress", "resolved"];
+const CATEGORY_VALS: &[&str] = &[
+    "Infrastructure", "Health", "Education", "Demand", "Complaint",
+    "Public Event", "Welcome", "Criticism", "Welfare Scheme", "Other",
 ];
 
 fn pill_cls(active: bool) -> &'static str {
@@ -39,6 +30,10 @@ pub fn FilterBar(
     category_filter: Signal<Option<String>>,
     search_query: Signal<String>,
 ) -> Element {
+    let ctx = use_context::<AppCtx>();
+    let is_tamil = *ctx.tamil_mode.read();
+    let t = i18n::get(is_tamil);
+
     // raw_input drives the text box immediately; search_query (parent signal) is
     // updated only after 300 ms of silence so the API isn't called on every keystroke.
     let mut raw_input: Signal<String> = use_signal(|| search_query.peek().clone());
@@ -46,6 +41,13 @@ pub fn FilterBar(
 
     let cur_status = status_filter.read().clone();
     let cur_category = category_filter.read().clone();
+
+    // Translated display labels — order matches STATUS_VALS / CATEGORY_VALS
+    let status_labels = [t.status_open, t.status_acknowledged, t.status_in_progress, t.status_resolved];
+    let category_labels = [
+        t.cat_infrastructure, t.cat_health, t.cat_education, t.cat_demand, t.cat_complaint,
+        t.cat_public_event, t.cat_welcome, t.cat_criticism, t.cat_welfare, t.cat_other,
+    ];
 
     rsx! {
         div { class: "space-y-3 pb-2",
@@ -55,9 +57,9 @@ pub fn FilterBar(
                     class: pill_cls(cur_status.is_none()),
                     "aria-label": "Show all statuses",
                     onclick: move |_| { status_filter.set(None); },
-                    "All"
+                    "{t.filter_all}"
                 }
-                for (val, label) in STATUSES {
+                for (val, label) in STATUS_VALS.iter().zip(status_labels.iter()) {
                     {
                         let v = val.to_string();
                         let is_active = cur_status.as_deref() == Some(val);
@@ -79,19 +81,19 @@ pub fn FilterBar(
                     class: pill_cls(cur_category.is_none()),
                     "aria-label": "Show all categories",
                     onclick: move |_| { category_filter.set(None); },
-                    "All"
+                    "{t.filter_all}"
                 }
-                for cat in CATEGORIES {
+                for (val, label) in CATEGORY_VALS.iter().zip(category_labels.iter()) {
                     {
-                        let c = cat.to_string();
-                        let is_active = cur_category.as_deref() == Some(cat);
+                        let c = val.to_string();
+                        let is_active = cur_category.as_deref() == Some(val);
                         rsx! {
                             button {
-                                key: "{cat}",
+                                key: "{val}",
                                 class: pill_cls(is_active),
-                                "aria-label": "Filter by category: {cat}",
+                                "aria-label": "Filter by category: {label}",
                                 onclick: move |_| { category_filter.set(Some(c.clone())); },
-                                "{cat}"
+                                "{label}"
                             }
                         }
                     }
@@ -109,7 +111,7 @@ pub fn FilterBar(
                             placeholder:text-tvk-text-dim focus:outline-none \
                             focus:border-tvk-maroon transition-all duration-150",
                     value: "{raw_input}",
-                    placeholder: "Search issues…",
+                    placeholder: "{t.search_placeholder}",
                     oninput: move |evt| {
                         let value = evt.value();
                         raw_input.set(value.clone());

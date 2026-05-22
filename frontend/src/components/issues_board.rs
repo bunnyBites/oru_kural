@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::i18n;
 use crate::models::Issue;
 use super::app_shell::AppCtx;
 use super::filter_bar::FilterBar;
@@ -11,6 +12,8 @@ use super::issue_detail::IssueDetail;
 pub fn IssuesBoard() -> Element {
     let ctx = use_context::<AppCtx>();
     let category_filter = ctx.category_filter;
+    let is_tamil = *ctx.tamil_mode.read();
+    let t = i18n::get(is_tamil);
 
     let status_filter: Signal<Option<String>> = use_signal(|| None);
     let search_query: Signal<String> = use_signal(String::new);
@@ -50,7 +53,7 @@ pub fn IssuesBoard() -> Element {
                 }
                 Err(e) => {
                     eprintln!("fetch_issues: {e}");
-                    error.set(Some("Could not load issues. Tap to retry.".into()));
+                    error.set(Some(t.error_load_issues.into()));
                 }
             }
             loading.set(false);
@@ -86,7 +89,7 @@ pub fn IssuesBoard() -> Element {
                                 }
                                 Err(e) => {
                                     eprintln!("fetch_issues retry: {e}");
-                                    error.set(Some("Could not load issues. Tap to retry.".into()));
+                                    error.set(Some(t.error_load_issues.into()));
                                 }
                             }
                             loading.set(false);
@@ -105,7 +108,7 @@ pub fn IssuesBoard() -> Element {
                 }
             } else if issues.read().is_empty() {
                 div { class: "py-20 text-center",
-                    p { class: "font-body text-tvk-text-dim text-sm", "No issues found." }
+                    p { class: "font-body text-tvk-text-dim text-sm", "{t.no_issues}" }
                 }
             } else {
                 div { class: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4",
@@ -126,7 +129,7 @@ pub fn IssuesBoard() -> Element {
                         class: "font-body text-sm text-tvk-text-secondary border border-tvk-border \
                                 rounded-lg px-6 py-2 hover:border-tvk-border-hover \
                                 transition-all duration-150",
-                        "aria-label": "Load more issues",
+                        "aria-label": "{t.load_more_issues}",
                         onclick: move |_| {
                             let cursor = next_cursor.read().clone();
                             let status = status_filter.read().clone();
@@ -144,7 +147,7 @@ pub fn IssuesBoard() -> Element {
                                 }
                             });
                         },
-                        "Load more issues"
+                        "{t.load_more_issues}"
                     }
                 }
             }

@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::i18n;
 use crate::models::Tab;
 use super::app_shell::AppCtx;
 
@@ -13,6 +14,7 @@ pub fn Header() -> Element {
     let tab = active_tab.read().clone();
     let is_dark = *dark_mode.read();
     let is_tamil = *tamil_mode.read();
+    let t = i18n::get(is_tamil);
     let toggle_icon = if is_dark { "☀" } else { "☾" };
     let lang_icon = if is_tamil { "En" } else { "த" };
 
@@ -41,7 +43,7 @@ pub fn Header() -> Element {
                             }
                         }
                         p { class: "text-xs font-body text-tvk-text-dim tracking-widest uppercase mt-0.5",
-                            "Tamil Nadu Civic Accountability Tracker"
+                            "{t.subtitle}"
                         }
                     }
                     div { class: "flex items-center gap-2",
@@ -92,19 +94,19 @@ pub fn Header() -> Element {
                         class: if tab == Tab::Issues { active_cls } else { inactive_cls },
                         "aria-label": "Issues Board tab",
                         onclick: move |_| active_tab.set(Tab::Issues),
-                        "Issues Board"
+                        "{t.tab_issues}"
                     }
                     button {
                         class: if tab == Tab::Events { active_cls } else { inactive_cls },
                         "aria-label": "CM Activity tab",
                         onclick: move |_| active_tab.set(Tab::Events),
-                        "CM Activity"
+                        "{t.tab_events}"
                     }
                     button {
                         class: if tab == Tab::Stats { active_cls } else { inactive_cls },
                         "aria-label": "Stats tab",
                         onclick: move |_| active_tab.set(Tab::Stats),
-                        "Stats"
+                        "{t.tab_stats}"
                     }
                 }
             }

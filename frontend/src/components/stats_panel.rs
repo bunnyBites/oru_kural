@@ -1,11 +1,14 @@
 use dioxus::prelude::*;
 
+use crate::i18n;
 use crate::models::Tab;
 use super::app_shell::AppCtx;
 
 #[component]
 pub fn StatsPanel() -> Element {
     let mut ctx = use_context::<AppCtx>();
+    let is_tamil = *ctx.tamil_mode.read();
+    let t = i18n::get(is_tamil);
     let stats = use_resource(|| async move { crate::api::fetch_stats().await });
 
     match &*stats.read() {
@@ -29,10 +32,10 @@ pub fn StatsPanel() -> Element {
                 div { class: "space-y-6",
                     div {
                         h2 { class: "font-display text-xl font-bold text-tvk-text mb-1",
-                            "Signal breakdown"
+                            "{t.stats_heading}"
                         }
                         p { class: "text-xs font-body text-tvk-text-dim",
-                            "Cards with issues are clickable — opens the Issues Board filtered by category."
+                            "{t.stats_hint}"
                         }
                     }
                     div { class: "grid grid-cols-2 sm:grid-cols-4 gap-3",
@@ -86,7 +89,7 @@ pub fn StatsPanel() -> Element {
                                             "{stat.tweet_count}"
                                         }
                                         p { class: "text-xs font-body text-tvk-text-dim mb-3",
-                                            "signals"
+                                            "{t.signals}"
                                         }
 
                                         // Progress bar
@@ -103,11 +106,11 @@ pub fn StatsPanel() -> Element {
                                                 span { class: "text-status-progress font-medium",
                                                     "{stat.issue_count}"
                                                 }
-                                                " issues · {stat.open_count} open"
+                                                " {t.issues} · {stat.open_count} {t.open}"
                                             }
                                         } else {
                                             p { class: "text-xs font-body text-tvk-text-dim italic",
-                                                "signals only — no issues clustered"
+                                                "{t.signals_only}"
                                             }
                                         }
                                     }
