@@ -14,15 +14,15 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # Full pipeline — run in this order:
-python scrape_tweets.py        # X API v2 → signals table (X_MAX_PAGES env, default 3, prod 10)
+python scrape_tweets.py        # twscrape (real accounts) → signals table, source="x" (TWSCRAPE_ACCOUNTS)
 python scrape_reddit.py        # Reddit JSON → signals table
 python scrape_cm_events.py     # TN Gov + The Hindu RSS → cm_events table
 python categorize_signals.py   # Gemini batch categorization of all uncategorized signals
 python cluster_issues.py       # Gemini semantic clustering → issues table
 python link_events_to_issues.py # Gemini links cm_events ↔ issues
 
-# Dry-run (skip X API, load local JSON instead):
-python scrape_tweets.py --dry-run path/to/file.json
+# Skip scraping, upsert from a previously saved JSON file instead:
+python scrape_tweets.py --from-file last_fetch.json
 ```
 
 ### Backend (Rust — run from `backend/`)
@@ -136,8 +136,8 @@ All vars live in `.env` at the repo root (copy from `.env.example`). `dotenvy` i
 | `GEMINI_MODEL` | `llm.py` | Defaults to `gemini-2.5-flash` |
 | `OPENROUTER_API_KEY` | `llm.py` | Optional; presence switches LLM provider |
 | `OPENROUTER_MODEL` | `llm.py` | Optional; defaults to `google/gemini-2.5-flash` |
-| `X_BEARER_TOKEN` | `scrape_tweets.py` | X API v2 app-only bearer token |
-| `X_MAX_PAGES` | `scrape_tweets.py` | Pages to fetch; default 3, set 10 in prod |
+| `TWSCRAPE_ACCOUNTS` | `scrape_tweets.py` | JSON array of throwaway X account dicts — see `.env.example` |
+| `TWSCRAPE_LIMIT` | `scrape_tweets.py` | Max tweets per run; default 100 |
 | `PORT` | Backend | `3000` in local `.env`; `8080` on Fly.io |
 | `FRONTEND_ORIGIN` | Backend | CORS allowed origin; omit for permissive CORS in dev |
 | `RUST_LOG` | Backend | Tracing filter, e.g. `info` or `oru_kural_backend=debug`; defaults to `info` |
@@ -159,7 +159,9 @@ Applied in order (never re-run):
 
 ## Automation (GitHub Actions)
 
-`.github/workflows/weekly_scrape.yml` runs every Monday at 2am UTC. Required GitHub secrets: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `X_BEARER_TOKEN`. Trigger manually via **Actions → Weekly Tweet Scraper → Run workflow**.
+`.github/workflows/weekly_scrape.yml` runs every Monday at 2am UTC. Required GitHub secrets: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `TWSCRAPE_ACCOUNTS`. Trigger manually via **Actions → Weekly Tweet Scraper → Run workflow**.
+
+To set up `TWSCRAPE_ACCOUNTS`: create 2–3 throwaway X (Twitter) accounts, then add the secret at **Settings → Secrets and variables → Actions → New repository secret** with value `[{"username":"...","password":"...","email":"...","email_password":"..."}]`.
 
 ## Do NOT touch
 

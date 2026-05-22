@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+      TWSCRAPE_ACCOUNTS: ${{ secrets.TWSCRAPE_ACCOUNTS }}
 
     steps:
       - name: Checkout code
@@ -32,19 +32,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r scripts/requirements.txt
 
-      # X API costs ~$100/month — only runs when X_BEARER_TOKEN secret is set.
-      # Remove the secret from GitHub → Settings → Secrets to disable permanently.
-      - name: Scrape X (@CMOTamilnadu) — skipped if no token
-        if: ${{ env.X_BEARER_TOKEN != '' }}
-        timeout-minutes: 10
+      # twscrape uses real X accounts — free, no API subscription.
+      # Requires TWSCRAPE_ACCOUNTS secret (JSON array of account objects).
+      # Step is skipped if the secret is not set so the rest of the pipeline still runs.
+      - name: Scrape X (@CMOTamilnadu) via twscrape
+        if: ${{ env.TWSCRAPE_ACCOUNTS != '' }}
+        timeout-minutes: 15
         continue-on-error: true
         env:
-          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
+          TWSCRAPE_ACCOUNTS: ${{ secrets.TWSCRAPE_ACCOUNTS }}
+          TWSCRAPE_LIMIT: "100"
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          X_MAX_PAGES: "2"
-          X_MAX_RESULTS: "25"
         run: python scripts/scrape_tweets.py
 
       - name: Run Reddit signal scraper
