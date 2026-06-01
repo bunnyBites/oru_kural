@@ -1,31 +1,37 @@
-app = "oru-kural-backend"
-primary_region = "bom"
+# fly.toml app configuration file generated for oru-kural on 2026-06-01T17:40:02Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'oru-kural'
+primary_region = 'bom'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
+
+[env]
+  PORT = '8080'
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = true
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
 
-[env]
-  PORT = "8080"
-
-[[vm]]
-  memory = "256mb"
-  cpu_kind = "shared"
-  cpus = 1
-
 [checks]
   [checks.health]
-    grace_period = "5s"
-    interval = "10s"
-    method = "get"
-    path = "/health"
     port = 8080
-    protocol = "http"
-    timeout = "2s"
-    type = "http"
+    type = 'http'
+    interval = '10s'
+    timeout = '2s'
+    grace_period = '5s'
+    method = 'get'
+    path = '/health'
+    protocol = 'http'
+
+[[vm]]
+  memory = '256mb'
+  cpu_kind = 'shared'
+  cpus = 1
+  memory_mb = 256
