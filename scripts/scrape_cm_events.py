@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SUPABASE_URL: str = os.environ["SUPABASE_URL"]
+SUPABASE_URL: str = os.environ["SUPABASE_URL"].rstrip("/").removesuffix("/rest/v1")
 SUPABASE_SERVICE_ROLE_KEY: str = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 RSS_FEEDS: list[tuple[str, str]] = [
