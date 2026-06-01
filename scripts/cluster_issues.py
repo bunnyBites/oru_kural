@@ -451,6 +451,7 @@ async def main() -> None:
 
             if not signals:
                 print("Nothing to cluster — exiting.")
+                await generate_tamil_for_issues(service_key, anon_key, supabase_url)
                 return
 
             existing_issues = await fetch_open_issues(client, anon_key, supabase_url)
