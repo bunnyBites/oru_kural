@@ -115,6 +115,7 @@ async def scrape_html_sources(client: httpx.AsyncClient) -> list[dict[str, Any]]
                 if (not title or len(title) < 10
                         or href in seen
                         or href.startswith("#")
+                        or href.lower().startswith("javascript:")
                         or ("http" in href and source_name.split()[0].lower() not in href)):
                     continue
                 seen.add(href)
@@ -186,13 +187,13 @@ async def upsert_events(client: httpx.AsyncClient, events: list[dict[str, Any]])
     if not events:
         return 0
     resp = await client.post(
-        f"{SUPABASE_URL}/rest/v1/cm_events",
+        f"{SUPABASE_URL}/rest/v1/cm_events?on_conflict=source_url",
         json=events,
         headers={
             "apikey": SUPABASE_SERVICE_ROLE_KEY,
             "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
             "Content-Type": "application/json",
-            "Prefer": "resolution=merge-duplicates",
+            "Prefer": "resolution=merge-duplicates,return=minimal",
         },
         timeout=30,
     )

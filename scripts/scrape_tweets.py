@@ -29,6 +29,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -239,6 +240,25 @@ async def scrape_with_x_api(
         reset_at = int(resp.headers.get("x-rate-limit-reset", 0))
         wait = max(15, reset_at - int(datetime.now(timezone.utc).timestamp()) + 5)
         raise RuntimeError(f"X API rate limit hit — retry after {wait}s")
+    if resp.status_code == 400 and since_id:
+        # X API enforces a 7-day rolling window; extract the suggested minimum ID and retry.
+        try:
+            errors = resp.json().get("errors", [])
+            for err in errors:
+                m = re.search(r"larger than (\d+)", err.get("message", ""))
+                if m:
+                    min_id = m.group(1)
+                    print(f"warning: since_id {since_id} is outside X API's 7-day window — retrying with min valid ID {min_id}")
+                    params["since_id"] = min_id
+                    async with httpx.AsyncClient(timeout=30) as retry_client:
+                        resp = await retry_client.get(
+                            f"{X_API_BASE}/tweets/search/recent",
+                            headers=headers,
+                            params=params,
+                        )
+                    break
+        except Exception:
+            pass
     if not resp.is_success:
         raise RuntimeError(
             f"X API {resp.status_code}: {resp.text}"
