@@ -1,5 +1,6 @@
 mod api;
 mod components;
+mod i18n;
 mod models;
 
 use dioxus::prelude::*;

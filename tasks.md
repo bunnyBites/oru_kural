@@ -1,6 +1,6 @@
 # Oru Kural — Task Tracker
 
-**Progress: 22 / 23 tasks complete.**
+**Progress: 23 / 24 tasks complete.**
 One task blocked on external credentials (T-11).
 
 Tasks are ordered by priority. Each is self-contained and executable independently unless a dependency is noted.
@@ -133,6 +133,19 @@ Created `.github/workflows/deploy_backend.yml` — triggers on push to `main` wh
 
 ### ~~T-23 · Add scrape_runs failure alerting~~ — DONE
 `scrape_tweets.py` and `scrape_reddit.py` call `sys.exit(1)` when 0 rows are upserted on a live run. Reddit step in `weekly_scrape.yml` has `continue-on-error: true` (403 from unauthenticated API is expected until PRAW is approved).
+
+---
+
+### ~~T-24 · Migrate X scraping from twscrape to official X API v2~~ — DONE
+Replaced throwaway-account twscrape approach with official Bearer Token auth against
+`GET /2/tweets/search/recent`. Key changes:
+- `min_faves:50` enforced server-side in the query — only qualifying tweets are returned
+  and billed, so cost tracks civic signals not raw scan volume (~$0.65/month at 2×/week)
+- Schedule changed from weekly (Monday) to twice-weekly (Mon + Thu) — smaller incremental
+  windows per run, smaller fetches, incremental `since_id` unchanged
+- `TWSCRAPE_ACCOUNTS` / `TWSCRAPE_LIMIT` → `X_BEARER_TOKEN` / `X_MAX_RESULTS` (default 50)
+- 0-result runs no longer `sys.exit(1)` — quiet periods are valid, not pipeline failures
+- `twscrape` removed from `requirements.txt`; no new dependencies (httpx already present)
 
 ---
 

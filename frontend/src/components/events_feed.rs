@@ -1,11 +1,17 @@
 use dioxus::prelude::*;
 
+use crate::i18n;
 use crate::models::CmEvent;
+use super::app_shell::AppCtx;
 use super::event_card::EventCard;
 use super::skeleton_card::SkeletonCard;
 
 #[component]
 pub fn EventsFeed() -> Element {
+    let ctx = use_context::<AppCtx>();
+    let is_tamil = *ctx.tamil_mode.read();
+    let t = i18n::get(is_tamil);
+
     let mut linked_only: Signal<bool> = use_signal(|| false);
     let mut events: Signal<Vec<CmEvent>> = use_signal(Vec::new);
     let mut next_cursor: Signal<Option<String>> = use_signal(|| None);
@@ -27,7 +33,7 @@ pub fn EventsFeed() -> Element {
                 }
                 Err(e) => {
                     eprintln!("fetch_events: {e}");
-                    error.set(Some("Could not load events. Tap to retry.".into()));
+                    error.set(Some(t.error_load_events.into()));
                 }
             }
             loading.set(false);
@@ -52,21 +58,20 @@ pub fn EventsFeed() -> Element {
                     class: if !lo { active_pill } else { inactive_pill },
                     "aria-label": "Show all CM events",
                     onclick: move |_| linked_only.set(false),
-                    "All"
+                    "{t.all_events}"
                 }
                 button {
                     class: if lo { active_pill } else { inactive_pill },
                     "aria-label": "Show only CM events linked to issues",
                     onclick: move |_| linked_only.set(true),
-                    "Linked to issues"
+                    "{t.linked_to_issues}"
                 }
             }
 
             if let Some(msg) = error_msg {
                 div {
-                    class: "flex items-center justify-between gap-3 rounded-lg px-4 py-3 \
-                            text-sm font-body cursor-pointer",
-                    style: "border: 1px solid #B8322740; background-color: #B8322710; color: #B83227;",
+                    class: "alert-error flex items-center justify-between gap-3 rounded-lg \
+                            px-4 py-3 text-sm font-body cursor-pointer",
                     onclick: move |_| {
                         let lo_val = *linked_only.read();
                         error.set(None);
@@ -80,7 +85,7 @@ pub fn EventsFeed() -> Element {
                                 }
                                 Err(e) => {
                                     eprintln!("fetch_events retry: {e}");
-                                    error.set(Some("Could not load events. Tap to retry.".into()));
+                                    error.set(Some(t.error_load_events.into()));
                                 }
                             }
                             loading.set(false);
@@ -97,7 +102,7 @@ pub fn EventsFeed() -> Element {
                 }
             } else if events.read().is_empty() {
                 div { class: "py-20 text-center",
-                    p { class: "font-body text-tvk-text-dim text-sm", "No events found." }
+                    p { class: "font-body text-tvk-text-dim text-sm", "{t.no_events}" }
                 }
             } else {
                 div { class: "space-y-4",
@@ -116,7 +121,7 @@ pub fn EventsFeed() -> Element {
                         class: "font-body text-sm text-tvk-text-secondary border border-tvk-border \
                                 rounded-lg px-6 py-2 hover:border-tvk-border-hover \
                                 transition-all duration-150",
-                        "aria-label": "Load more CM events",
+                        "aria-label": "{t.load_more_events}",
                         onclick: move |_| {
                             let cursor = next_cursor.read().clone();
                             let lo_val = *linked_only.read();
@@ -131,7 +136,7 @@ pub fn EventsFeed() -> Element {
                                 }
                             });
                         },
-                        "Load more"
+                        "{t.load_more_events}"
                     }
                 }
             }

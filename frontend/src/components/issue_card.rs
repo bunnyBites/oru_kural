@@ -1,15 +1,30 @@
 use dioxus::prelude::*;
 
 use crate::models::Issue;
+use super::app_shell::AppCtx;
 use super::status_badge::StatusBadge;
 use super::category_badge::CategoryBadge;
 
 #[component]
 pub fn IssueCard(issue: Issue, index: usize, on_click: EventHandler<i64>) -> Element {
+    let ctx = use_context::<AppCtx>();
+    let is_tamil = *ctx.tamil_mode.read();
+
     let delay = (index * 60).min(600);
     let voice_count = issue.voice_count;
     let issue_id = issue.id;
     let has_linked_event = issue.linked_event_id.is_some();
+
+    let title = if is_tamil {
+        issue.title_ta.as_deref().unwrap_or(&issue.title)
+    } else {
+        &issue.title
+    };
+    let summary: Option<&str> = if is_tamil {
+        issue.summary_ta.as_deref().or(issue.summary.as_deref())
+    } else {
+        issue.summary.as_deref()
+    };
 
     rsx! {
         div {
@@ -21,8 +36,10 @@ pub fn IssueCard(issue: Issue, index: usize, on_click: EventHandler<i64>) -> Ele
 
             div { class: "flex items-start justify-between gap-2 mb-3",
                 div { class: "min-w-0",
-                    p { class: "font-body font-semibold text-sm text-tvk-text leading-snug line-clamp-2",
-                        "{issue.title}"
+                    p {
+                        class: "font-body font-semibold text-sm text-tvk-text leading-snug line-clamp-2",
+                        class: if is_tamil { "font-tamil" } else { "" },
+                        "{title}"
                     }
                     if let Some(loc) = &issue.location {
                         p { class: "text-xs font-body text-tvk-text-dim mt-0.5", "📍 {loc}" }
@@ -32,9 +49,11 @@ pub fn IssueCard(issue: Issue, index: usize, on_click: EventHandler<i64>) -> Ele
             }
 
             div { class: "flex-1 mb-4",
-                if let Some(summary) = &issue.summary {
-                    p { class: "font-body text-sm text-tvk-text-secondary leading-relaxed line-clamp-3",
-                        "{summary}"
+                if let Some(text) = summary {
+                    p {
+                        class: "font-body text-sm text-tvk-text-secondary leading-relaxed line-clamp-3",
+                        class: if is_tamil { "font-tamil" } else { "" },
+                        "{text}"
                     }
                 }
             }

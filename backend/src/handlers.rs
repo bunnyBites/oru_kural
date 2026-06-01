@@ -20,7 +20,7 @@ const MAX_LIMIT: u32 = 100;
 const DEFAULT_LIMIT: u32 = 50;
 
 const ISSUE_COLS: &str =
-    "id,title,summary,category,location,department,status,voice_count,first_raised_at,last_updated_at,linked_event_id,resolution_note";
+    "id,title,summary,title_ta,summary_ta,category,location,department,status,voice_count,first_raised_at,last_updated_at,linked_event_id,resolution_note";
 const SIGNAL_COLS: &str =
     "id,source,author_handle,author_name,content,translated_content,url,posted_at,category,confidence,issue_id,score,scraped_at";
 const SIGNAL_DETAIL_COLS: &str =

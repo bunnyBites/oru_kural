@@ -2,9 +2,11 @@ use dioxus::prelude::*;
 
 fn source_display(source: &str) -> (&'static str, &'static str, &'static str) {
     match source {
-        "x" => ("𝕏", "#000000", "#FFFFFF"),
-        "reddit" => ("Reddit", "#FF4500", "#FFFFFF"),
-        _ => ("?", "#6B7280", "#FFFFFF"),
+        "x"          => ("𝕏",        "#000000", "#FFFFFF"),
+        "reddit"     => ("Reddit",   "#FF4500", "#FFFFFF"),
+        "cm_helpline"=> ("Helpline", "#A06810", "#FFFFFF"),
+        "gcc_pgr"    => ("GCC PGR",  "#0E7A68", "#FFFFFF"),
+        _            => ("?",        "#6B7280", "#FFFFFF"),
     }
 }
 

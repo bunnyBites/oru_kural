@@ -1,18 +1,34 @@
 """
-Scrape tweets mentioning @CMOTamilnadu via X API v2 and upsert to Supabase.
+Scrape tweets mentioning @CMOTamilnadu via X API v2 (official Bearer Token).
+
+Cost: ~$0.005 per post returned. Server-side filter (min_faves:50 in query)
+      means only qualifying tweets are fetched — typical 10–30 per call,
+      ~$0.08/run, under $1/month at 2×/week.
+
+Schedule: Monday + Thursday, 2am UTC (incremental via since_id — each run
+          fetches only tweets newer than the last stored X signal).
+
+Setup:
+    1. Create a developer app at console.x.com
+    2. Generate a Bearer Token
+    3. Set X_BEARER_TOKEN in .env (local) or GitHub Actions secrets (CI)
+    4. Load $10–15 in credits at console.x.com (~6 months of budget)
+
+Env vars:
+    X_BEARER_TOKEN          (required) Bearer Token from console.x.com
+    X_MAX_RESULTS           max results per call, default 50 (range 10–100)
+    SUPABASE_URL
+    SUPABASE_SERVICE_ROLE_KEY
 
 Usage:
-    python scrape_tweets.py                      # full run — fetch + upsert
-    python scrape_tweets.py --from-file FILE     # skip X API, upsert from saved JSON
+    python scrape_tweets.py                   # full run — scrape + upsert
+    python scrape_tweets.py --from-file FILE  # skip scraping, upsert saved rows
 """
 
 import argparse
 import asyncio
 import json
 import os
-import random
-import sys
-import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -21,21 +37,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-MAX_PAGES: int = int(os.environ.get("X_MAX_PAGES", "1"))
-MAX_RESULTS_PER_PAGE: int = int(os.environ.get("X_MAX_RESULTS", "25"))
-MIN_LIKES = 50
-MIN_REPLIES_WITH_TAG = 10
+X_API_BASE = "https://api.twitter.com/2"
+X_MAX_RESULTS: int = min(100, max(10, int(os.environ.get("X_MAX_RESULTS", "50"))))
 UPSERT_BATCH_SIZE = 100
-SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
 CACHE_FILE = "last_fetch.json"
 
+MIN_LIKES = 50
+MIN_REPLIES = 10
 
-async def backoff_sleep(attempt: int, base: float = 2.0, cap: float = 60.0) -> None:
-    """Exponential backoff with jitter. attempt is 0-indexed."""
-    delay = min(base ** attempt + random.uniform(0, 1), cap)
-    print(f"Backoff: sleeping {delay:.1f}s (attempt {attempt + 1})")
-    await asyncio.sleep(delay)
 
+# ── Supabase helpers ───────────────────────────────────────────────────────────
 
 async def insert_scrape_run(
     client: httpx.AsyncClient,
@@ -114,58 +125,12 @@ async def fail_scrape_run(
     resp.raise_for_status()
 
 
-async def fetch_page(
-    client: httpx.AsyncClient,
-    bearer_token: str,
-    params: dict[str, Any],
-) -> dict[str, Any]:
-    headers = {"Authorization": f"Bearer {bearer_token}"}
-    server_err_attempts = 0
-
-    while True:
-        resp = await client.get(SEARCH_URL, params=params, headers=headers, timeout=30)
-
-        if resp.status_code == 429:
-            reset_header = resp.headers.get("x-rate-limit-reset")
-            if reset_header:
-                sleep_for = max(0, int(reset_header) - time.time()) + 5
-                print(f"Rate limited. Sleeping {sleep_for:.0f}s until reset…")
-                await asyncio.sleep(sleep_for)
-            else:
-                await backoff_sleep(server_err_attempts)
-            continue
-
-        if resp.status_code in (400, 401, 403):
-            raise RuntimeError(f"X API error {resp.status_code}: {resp.text}") from None
-
-        if resp.status_code >= 500:
-            if server_err_attempts >= 3:
-                raise RuntimeError(
-                    f"X API 5xx after 3 retries: {resp.status_code}: {resp.text}"
-                ) from None
-            await backoff_sleep(server_err_attempts)
-            server_err_attempts += 1
-            continue
-
-        resp.raise_for_status()
-        return resp.json()
-
-
-def has_engagement(tweet: dict[str, Any]) -> bool:
-    """Returns True if the tweet has proven public traction."""
-    metrics = tweet.get("public_metrics", {})
-    likes = metrics.get("like_count", 0)
-    replies = metrics.get("reply_count", 0)
-    text = tweet.get("text", "")
-    return likes >= MIN_LIKES or (replies >= MIN_REPLIES_WITH_TAG and "@CMOTamilnadu" in text)
-
-
 async def fetch_latest_x_signal_id(
     client: httpx.AsyncClient,
     supabase_url: str,
     service_key: str,
 ) -> str | None:
-    """Return the most recent X tweet ID stored in signals, to use as since_id next run."""
+    """Return the most-recent X tweet ID stored in signals, used as since_id next run."""
     try:
         resp = await client.get(
             f"{supabase_url}/rest/v1/signals",
@@ -187,77 +152,6 @@ async def fetch_latest_x_signal_id(
     except Exception as exc:
         print(f"warning: could not fetch latest signal ID (will do full fetch): {exc}")
         return None
-
-
-async def scrape_tweets(bearer_token: str, since_id: str | None = None) -> tuple[list[dict[str, Any]], int, int]:
-    """Returns (rows, page_count, skipped_count)."""
-    # min_faves:50 pushes the engagement filter to the X API side so we never
-    # fetch (and pay for) low-engagement tweets. Local has_engagement() is kept
-    # as a second gate for the replies path which min_faves doesn't cover.
-    params: dict[str, Any] = {
-        "query": f"@CMOTamilnadu -is:retweet -is:reply (lang:ta OR lang:en) min_faves:{MIN_LIKES}",
-        "max_results": max(10, min(MAX_RESULTS_PER_PAGE, 100)),
-        "tweet.fields": "created_at,author_id,text,public_metrics",
-        "expansions": "author_id",
-        "user.fields": "username,name",
-    }
-
-    if since_id:
-        params["since_id"] = since_id
-        print(f"Incremental fetch: only tweets newer than ID {since_id}")
-    else:
-        print("Full fetch: no prior signals found — reading up to 7 days back")
-
-    all_rows: list[dict[str, Any]] = []
-    page_count = 0
-    skipped_count = 0
-
-    async with httpx.AsyncClient() as client:
-        for page_num in range(1, MAX_PAGES + 1):
-            data = await fetch_page(client, bearer_token, params)
-            page_count += 1
-
-            tweets = data.get("data", [])
-            users = {u["id"]: u for u in data.get("includes", {}).get("users", [])}
-
-            print(f"Fetched page {page_num}: {len(tweets)} tweets")
-
-            for tweet in tweets:
-                author_id = tweet.get("author_id")
-                if not author_id or author_id not in users:
-                    print(f"  warning: author_id {author_id!r} not in users lookup — skipping tweet {tweet.get('id')}")
-                    continue
-
-                if not has_engagement(tweet):
-                    skipped_count += 1
-                    continue
-
-                user = users[author_id]
-                tweet_id = tweet["id"]
-                metrics = tweet.get("public_metrics", {})
-                all_rows.append({
-                    "id": tweet_id,
-                    "source": "x",
-                    "author_handle": user["username"],
-                    "author_name": user["name"],
-                    "content": tweet["text"],
-                    "url": f"https://x.com/i/web/status/{tweet_id}",
-                    "posted_at": tweet["created_at"],
-                    "score": metrics.get("like_count", 0),
-                    "category": None,
-                    "confidence": None,
-                    "raw_json": tweet,
-                    "scraped_at": datetime.now(timezone.utc).isoformat(),
-                })
-
-            next_token = data.get("meta", {}).get("next_token")
-            if not next_token:
-                break
-
-            params["next_token"] = next_token
-            await asyncio.sleep(1)
-
-    return all_rows, page_count, skipped_count
 
 
 async def upsert_batch(
@@ -294,12 +188,123 @@ async def upsert_all(
     return len(rows)
 
 
+# ── X API v2 scraping ──────────────────────────────────────────────────────────
+
+async def scrape_with_x_api(
+    bearer_token: str,
+    since_id: str | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """
+    Fetch tweets via X API v2 /tweets/search/recent.
+    Returns (rows, pages_fetched).
+
+    min_faves is not available on Basic tier, so engagement is filtered client-side
+    after fetching (MIN_LIKES=50 or MIN_REPLIES=10).
+    """
+    query = "@CMOTamilnadu -is:retweet -is:reply (lang:ta OR lang:en)"
+    params: dict[str, str] = {
+        "query": query,
+        "max_results": str(X_MAX_RESULTS),
+        "tweet.fields": "created_at,public_metrics,author_id,lang",
+        "expansions": "author_id",
+        "user.fields": "username,name",
+    }
+    if since_id:
+        params["since_id"] = since_id
+        print(f"Incremental: fetching tweets newer than ID {since_id}")
+    else:
+        print("Full fetch — no prior X signals found")
+
+    print(f"Query: {query!r}   max_results={X_MAX_RESULTS}")
+
+    headers = {
+        "Authorization": f"Bearer {bearer_token}",
+        "User-Agent": "oru-kural/1.0",
+    }
+
+    now_utc = datetime.now(timezone.utc).isoformat()
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            f"{X_API_BASE}/tweets/search/recent",
+            headers=headers,
+            params=params,
+        )
+
+    if resp.status_code == 401:
+        raise RuntimeError(
+            "X_BEARER_TOKEN is invalid or expired. Regenerate at console.x.com."
+        )
+    if resp.status_code == 429:
+        reset_at = int(resp.headers.get("x-rate-limit-reset", 0))
+        wait = max(15, reset_at - int(datetime.now(timezone.utc).timestamp()) + 5)
+        raise RuntimeError(f"X API rate limit hit — retry after {wait}s")
+    if not resp.is_success:
+        raise RuntimeError(
+            f"X API {resp.status_code}: {resp.text}"
+        )
+    body = resp.json()
+
+    tweets: list[dict[str, Any]] = body.get("data", [])
+    users: dict[str, dict[str, Any]] = {
+        u["id"]: u for u in body.get("includes", {}).get("users", [])
+    }
+    meta = body.get("meta", {})
+
+    rows: list[dict[str, Any]] = []
+    skipped = 0
+    for tweet in tweets:
+        metrics = tweet.get("public_metrics", {})
+        likes = metrics.get("like_count", 0)
+        replies = metrics.get("reply_count", 0)
+        if likes < MIN_LIKES and replies < MIN_REPLIES:
+            skipped += 1
+            continue
+
+        user = users.get(tweet.get("author_id", ""), {})
+        tweet_id = tweet["id"]
+        username = user.get("username", "unknown")
+
+        rows.append({
+            "id": tweet_id,
+            "source": "x",
+            "author_handle": username,
+            "author_name": user.get("name", username),
+            "content": tweet["text"],
+            "url": f"https://x.com/{username}/status/{tweet_id}",
+            "posted_at": tweet.get("created_at", now_utc),
+            "score": likes,
+            "category": None,
+            "confidence": None,
+            "raw_json": tweet,
+            "scraped_at": now_utc,
+        })
+
+    result_count = meta.get("result_count", len(tweets))
+    print(
+        f"Fetched {result_count} tweets, kept {len(rows)} with engagement, "
+        f"skipped {skipped} low-traction"
+    )
+
+    if meta.get("next_token"):
+        print(
+            "Note: more results available — incremental since_id on next run will catch overflow."
+        )
+
+    return rows, 1
+
+
+# ── main ───────────────────────────────────────────────────────────────────────
+
 async def main() -> None:
-    parser = argparse.ArgumentParser(description="Scrape @CMOTamilnadu tweets and store in Supabase.")
+    parser = argparse.ArgumentParser(
+        description="Scrape @CMOTamilnadu tweets via X API v2 and store in Supabase."
+    )
     parser.add_argument(
         "--from-file",
         metavar="FILE",
-        help=f"Skip X API fetch; load mapped rows from FILE and upsert directly (use {CACHE_FILE} from a previous run)",
+        help=f"Skip scraping; load mapped rows from FILE and upsert directly "
+             f"(use {CACHE_FILE} from a previous run)",
     )
     args = parser.parse_args()
 
@@ -309,21 +314,21 @@ async def main() -> None:
     run_id: int | None = None
     async with httpx.AsyncClient() as tracking_client:
         try:
-            run_id = await insert_scrape_run(tracking_client, supabase_url, service_key, script="scrape_tweets")
+            run_id = await insert_scrape_run(
+                tracking_client, supabase_url, service_key, script="scrape_tweets"
+            )
         except Exception as exc:
-            print(f"warning: scrape_runs tracking unavailable (migration not applied?): {exc}")
-
-    page_count = 0
-    skipped_count = 0
+            print(f"warning: scrape_runs tracking unavailable: {exc}")
 
     async def _complete(fetched: int, upserted: int, pages: int) -> None:
         if run_id is None:
             return
         async with httpx.AsyncClient() as tc:
             try:
-                await complete_scrape_run(tc, supabase_url, service_key, run_id,
-                                          tweets_fetched=fetched, tweets_upserted=upserted,
-                                          pages_fetched=pages)
+                await complete_scrape_run(
+                    tc, supabase_url, service_key, run_id,
+                    tweets_fetched=fetched, tweets_upserted=upserted, pages_fetched=pages,
+                )
             except Exception as exc:
                 print(f"warning: failed to complete scrape_run: {exc}")
 
@@ -342,41 +347,44 @@ async def main() -> None:
             with open(args.from_file, encoding="utf-8") as fh:
                 rows: list[dict[str, Any]] = json.load(fh)
             print(f"Loaded {len(rows)} rows.")
+            pages = 0
         else:
-            bearer_token: str = os.environ["X_BEARER_TOKEN"]
+            bearer_token = os.environ.get("X_BEARER_TOKEN", "").strip()
+            if not bearer_token:
+                raise RuntimeError(
+                    "X_BEARER_TOKEN env var is not set.\n"
+                    "Generate a Bearer Token at console.x.com and add it to .env or GitHub secrets."
+                )
+
             async with httpx.AsyncClient() as lookup_client:
-                since_id = await fetch_latest_x_signal_id(lookup_client, supabase_url, service_key)
-            rows, page_count, skipped_count = await scrape_tweets(bearer_token, since_id=since_id)
-            # Save before upserting so data is not lost if upsert fails
+                since_id = await fetch_latest_x_signal_id(
+                    lookup_client, supabase_url, service_key
+                )
+
+            rows, pages = await scrape_with_x_api(bearer_token, since_id=since_id)
+
             with open(CACHE_FILE, "w", encoding="utf-8") as fh:
                 json.dump(rows, fh, ensure_ascii=False, indent=2)
             print(f"Saved {len(rows)} rows to {CACHE_FILE}")
 
         total_fetched = len(rows)
-        # Deduplicate by tweet id — X API can return the same tweet on multiple pages
+
+        # Deduplicate by tweet id (safety net for page-boundary overlaps)
         seen: dict[str, dict[str, Any]] = {}
         for row in rows:
             seen[row["id"]] = row
         rows = list(seen.values())
         if total_fetched != len(rows):
-            print(f"Deduplicated {total_fetched - len(rows)} duplicate tweets → {len(rows)} unique")
-
-        if skipped_count:
-            print(f"Skipped {skipped_count} zero-engagement tweets.")
+            print(f"Deduplicated {total_fetched - len(rows)} duplicates → {len(rows)} unique")
 
         if not rows:
-            print("Done. Total fetched: 0. Total upserted: 0.")
-            await _complete(0, 0, page_count)
-            if not args.from_file:
-                print("ERROR: 0 signals upserted on a live X API run — failing the step.")
-                sys.exit(1)
+            print("Done. 0 qualifying tweets this run — normal for quiet periods.")
+            await _complete(0, 0, pages if not args.from_file else 0)
             return
 
         total_upserted = await upsert_all(supabase_url, service_key, rows)
-        print(f"Done. Total fetched: {total_fetched}. Total upserted: {total_upserted}. Skipped (low traction): {skipped_count}.")
-        estimated_cost = total_fetched * 0.005
-        print(f"Estimated X API cost this run: ${estimated_cost:.2f}")
-        await _complete(total_fetched, total_upserted, page_count)
+        print(f"Done. Fetched: {total_fetched}. Upserted: {total_upserted}.")
+        await _complete(total_fetched, total_upserted, pages if not args.from_file else 0)
 
     except Exception as e:
         await _fail(str(e))

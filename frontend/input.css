@@ -104,6 +104,17 @@
 [data-theme="dark"] .badge-status-progress { color: #4090D0; background-color: #4090D020; border: 1px solid #4090D045; }
 [data-theme="dark"] .badge-status-resolved { color: #40B870; background-color: #40B87020; border: 1px solid #40B87045; }
 
+/* Linked event badge — reuses infrastructure blue */
+.badge-linked { color: #1A6FA8; background-color: #1A6FA818; border: 1px solid #1A6FA840; }
+[data-theme="dark"] .badge-linked { color: #4090D0; background-color: #4090D020; border: 1px solid #4090D045; }
+
+/* API error / retry banner */
+.alert-error { border: 1px solid #B8322740; background-color: #B8322710; color: #B83227; }
+[data-theme="dark"] .alert-error { border: 1px solid #E8706045; background-color: #E8706020; color: #E87060; }
+
+/* Drawer backdrop */
+.modal-overlay { background: rgba(0,0,0,0.45); backdrop-filter: blur(2px); }
+
 @keyframes card-enter {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }

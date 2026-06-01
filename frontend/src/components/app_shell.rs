@@ -10,6 +10,7 @@ use super::stats_panel::StatsPanel;
 pub struct AppCtx {
     pub active_tab: Signal<Tab>,
     pub dark_mode: Signal<bool>,
+    pub tamil_mode: Signal<bool>,
     pub category_filter: Signal<Option<String>>,
 }
 
@@ -17,23 +18,25 @@ pub struct AppCtx {
 pub fn AppShell() -> Element {
     let active_tab = use_signal(|| Tab::Issues);
     let dark_mode = use_signal(|| false);
+    let tamil_mode = use_signal(|| false);
     let category_filter = use_signal(|| None::<String>);
 
-    use_context_provider(|| AppCtx { active_tab, dark_mode, category_filter });
+    use_context_provider(|| AppCtx { active_tab, dark_mode, tamil_mode, category_filter });
 
     use_effect(move || {
         let mut dm = dark_mode;
+        let mut tm = tamil_mode;
         spawn(async move {
             let mut ev = document::eval(
-                "const s = localStorage.getItem('theme'); \
-                 const d = s === 'dark'; \
-                 if (d) document.documentElement.setAttribute('data-theme','dark'); \
-                 dioxus.send(d);",
+                "const theme = localStorage.getItem('theme'); \
+                 const dark = theme === 'dark'; \
+                 if (dark) document.documentElement.setAttribute('data-theme','dark'); \
+                 const lang = localStorage.getItem('language'); \
+                 dioxus.send([dark, lang === 'tamil']);",
             );
-            if let Ok(dark) = ev.recv::<bool>().await {
-                if dark {
-                    dm.set(true);
-                }
+            if let Ok(flags) = ev.recv::<[bool; 2]>().await {
+                if flags[0] { dm.set(true); }
+                if flags[1] { tm.set(true); }
             }
         });
     });

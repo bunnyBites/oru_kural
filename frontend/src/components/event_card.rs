@@ -1,9 +1,15 @@
 use dioxus::prelude::*;
 
+use crate::i18n;
 use crate::models::{CmEvent, format_date};
+use super::app_shell::AppCtx;
 
 #[component]
 pub fn EventCard(event: CmEvent) -> Element {
+    let ctx = use_context::<AppCtx>();
+    let is_tamil = *ctx.tamil_mode.read();
+    let t = i18n::get(is_tamil);
+
     rsx! {
         div {
             class: "bg-tvk-surface border border-tvk-border rounded-xl p-5 \
@@ -15,9 +21,8 @@ pub fn EventCard(event: CmEvent) -> Element {
                 }
                 if event.linked_issue_id.is_some() {
                     span {
-                        class: "text-xs font-body shrink-0 px-2 py-0.5 rounded-full",
-                        style: "color: #1A6FA8; background: #1A6FA818; border: 1px solid #1A6FA840;",
-                        "Linked"
+                        class: "badge-linked text-xs font-body shrink-0 px-2 py-0.5 rounded-full",
+                        "{t.linked_badge}"
                     }
                 }
             }
@@ -48,7 +53,7 @@ pub fn EventCard(event: CmEvent) -> Element {
                     class: "text-xs font-body text-tvk-maroon hover:underline",
                     href: "{event.source_url}",
                     target: "_blank",
-                    "Read more →"
+                    "{t.read_more}"
                 }
             }
         }
