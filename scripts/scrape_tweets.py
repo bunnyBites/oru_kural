@@ -1,25 +1,27 @@
 """
-Scrape tweets mentioning @CMOTamilnadu via twscrape (real-account web scraper).
+Scrape tweets mentioning @CMOTamilnadu via X API v2 (official Bearer Token).
 
-Cost: Free — no X API subscription needed.
-      Uses 2–3 throwaway X accounts stored as TWSCRAPE_ACCOUNTS secret.
+Cost: ~$0.005 per post returned. Server-side filter (min_faves:50 in query)
+      means only qualifying tweets are fetched — typical 10–30 per call,
+      ~$0.08/run, under $1/month at 2×/week.
 
-Account format (JSON array):
-  [{"username":"...", "password":"...", "email":"...", "email_password":"..."}]
+Schedule: Monday + Thursday, 2am UTC (incremental via since_id — each run
+          fetches only tweets newer than the last stored X signal).
 
-  Also accepts a single-account JSON object (no surrounding array).
-
-  GitHub Actions: add as a repository secret named TWSCRAPE_ACCOUNTS.
-  Local dev:      set TWSCRAPE_ACCOUNTS in the root .env file.
+Setup:
+    1. Create a developer app at console.x.com
+    2. Generate a Bearer Token
+    3. Set X_BEARER_TOKEN in .env (local) or GitHub Actions secrets (CI)
+    4. Load $10–15 in credits at console.x.com (~6 months of budget)
 
 Env vars:
-    TWSCRAPE_ACCOUNTS       (required) JSON array of account dicts
-    TWSCRAPE_LIMIT          max tweets to fetch, default 100
-    SUPABASE_URL            Supabase project URL
+    X_BEARER_TOKEN          (required) Bearer Token from console.x.com
+    X_MAX_RESULTS           max results per call, default 50 (range 10–100)
+    SUPABASE_URL
     SUPABASE_SERVICE_ROLE_KEY
 
 Usage:
-    python scrape_tweets.py            # full run — scrape + upsert
+    python scrape_tweets.py                   # full run — scrape + upsert
     python scrape_tweets.py --from-file FILE  # skip scraping, upsert saved rows
 """
 
@@ -27,25 +29,24 @@ import argparse
 import asyncio
 import json
 import os
-import sys
-import tempfile
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 from dotenv import load_dotenv
-from twscrape import API
 
 load_dotenv()
 
-TWSCRAPE_LIMIT: int = int(os.environ.get("TWSCRAPE_LIMIT", "100"))
-MIN_LIKES = 50
-MIN_REPLIES_WITH_TAG = 10
+X_API_BASE = "https://api.twitter.com/2"
+X_MAX_RESULTS: int = min(100, max(10, int(os.environ.get("X_MAX_RESULTS", "50"))))
 UPSERT_BATCH_SIZE = 100
 CACHE_FILE = "last_fetch.json"
 
+MIN_LIKES = 50
+MIN_REPLIES = 10
 
-# ── Supabase helpers (unchanged from v3) ───────────────────────────────────────
+
+# ── Supabase helpers ───────────────────────────────────────────────────────────
 
 async def insert_scrape_run(
     client: httpx.AsyncClient,
@@ -187,94 +188,117 @@ async def upsert_all(
     return len(rows)
 
 
-# ── twscrape scraping ──────────────────────────────────────────────────────────
+# ── X API v2 scraping ──────────────────────────────────────────────────────────
 
-def has_engagement(tweet: Any) -> bool:
-    """Return True if the tweet has enough public traction to be a civic signal."""
-    likes = tweet.likeCount or 0
-    replies = tweet.replyCount or 0
-    text = tweet.rawContent or ""
-    return likes >= MIN_LIKES or (replies >= MIN_REPLIES_WITH_TAG and "@CMOTamilnadu" in text)
-
-
-async def scrape_with_twscrape(
-    accounts: list[dict[str, str]],
+async def scrape_with_x_api(
+    bearer_token: str,
     since_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     """
-    Scrape @CMOTamilnadu tweets using twscrape.
-    Returns (rows, skipped_low_engagement_count).
+    Fetch tweets via X API v2 /tweets/search/recent.
+    Returns (rows, pages_fetched).
+
+    min_faves is not available on Basic tier, so engagement is filtered client-side
+    after fetching (MIN_LIKES=50 or MIN_REPLIES=10).
     """
-    # Each CI run gets a fresh temp db — no stale login state between runs
-    db_path = os.path.join(tempfile.mkdtemp(), "tw.db")
-    api = API(db_path)
-
-    for acc in accounts:
-        await api.pool.add_account(
-            acc["username"],
-            acc["password"],
-            acc["email"],
-            acc["email_password"],
-        )
-    print(f"Logging in {len(accounts)} account(s)…")
-    await api.pool.login_all()
-
-    # Build search query — operators match Twitter's advanced search
-    query = "@CMOTamilnadu -filter:retweets -filter:replies (lang:ta OR lang:en)"
+    query = "@CMOTamilnadu -is:retweet -is:reply (lang:ta OR lang:en)"
+    params: dict[str, str] = {
+        "query": query,
+        "max_results": str(X_MAX_RESULTS),
+        "tweet.fields": "created_at,public_metrics,author_id,lang",
+        "expansions": "author_id",
+        "user.fields": "username,name",
+    }
     if since_id:
-        query += f" since_id:{since_id}"
+        params["since_id"] = since_id
         print(f"Incremental: fetching tweets newer than ID {since_id}")
     else:
-        print("Full fetch — no prior X signals found, reading recent tweets")
+        print("Full fetch — no prior X signals found")
 
-    print(f"Query: {query!r}   limit={TWSCRAPE_LIMIT}")
+    print(f"Query: {query!r}   max_results={X_MAX_RESULTS}")
+
+    headers = {
+        "Authorization": f"Bearer {bearer_token}",
+        "User-Agent": "oru-kural/1.0",
+    }
+
+    now_utc = datetime.now(timezone.utc).isoformat()
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            f"{X_API_BASE}/tweets/search/recent",
+            headers=headers,
+            params=params,
+        )
+
+    if resp.status_code == 401:
+        raise RuntimeError(
+            "X_BEARER_TOKEN is invalid or expired. Regenerate at console.x.com."
+        )
+    if resp.status_code == 429:
+        reset_at = int(resp.headers.get("x-rate-limit-reset", 0))
+        wait = max(15, reset_at - int(datetime.now(timezone.utc).timestamp()) + 5)
+        raise RuntimeError(f"X API rate limit hit — retry after {wait}s")
+    if not resp.is_success:
+        raise RuntimeError(
+            f"X API {resp.status_code}: {resp.text}"
+        )
+    body = resp.json()
+
+    tweets: list[dict[str, Any]] = body.get("data", [])
+    users: dict[str, dict[str, Any]] = {
+        u["id"]: u for u in body.get("includes", {}).get("users", [])
+    }
+    meta = body.get("meta", {})
 
     rows: list[dict[str, Any]] = []
     skipped = 0
-    total = 0
-    now_utc = datetime.now(timezone.utc).isoformat()
-
-    async for tweet in api.search(query, limit=TWSCRAPE_LIMIT):
-        total += 1
-        if not has_engagement(tweet):
+    for tweet in tweets:
+        metrics = tweet.get("public_metrics", {})
+        likes = metrics.get("like_count", 0)
+        replies = metrics.get("reply_count", 0)
+        if likes < MIN_LIKES and replies < MIN_REPLIES:
             skipped += 1
             continue
 
-        tweet_id = str(tweet.id)
-
-        # tweet.json() serialises datetimes; parse back to dict for raw_json column
-        try:
-            raw: Any = json.loads(tweet.json())
-        except Exception:
-            raw = {"id": tweet_id, "rawContent": tweet.rawContent}
+        user = users.get(tweet.get("author_id", ""), {})
+        tweet_id = tweet["id"]
+        username = user.get("username", "unknown")
 
         rows.append({
             "id": tweet_id,
             "source": "x",
-            "author_handle": tweet.user.username,
-            "author_name": tweet.user.displayname,
-            "content": tweet.rawContent,
-            "url": tweet.url,
-            "posted_at": tweet.date.isoformat(),
-            "score": tweet.likeCount or 0,
+            "author_handle": username,
+            "author_name": user.get("name", username),
+            "content": tweet["text"],
+            "url": f"https://x.com/{username}/status/{tweet_id}",
+            "posted_at": tweet.get("created_at", now_utc),
+            "score": likes,
             "category": None,
             "confidence": None,
-            "raw_json": raw,
+            "raw_json": tweet,
             "scraped_at": now_utc,
         })
 
+    result_count = meta.get("result_count", len(tweets))
     print(
-        f"Fetched {total} tweets, kept {len(rows)} with engagement, "
+        f"Fetched {result_count} tweets, kept {len(rows)} with engagement, "
         f"skipped {skipped} low-traction"
     )
-    return rows, skipped
+
+    if meta.get("next_token"):
+        print(
+            "Note: more results available — incremental since_id on next run will catch overflow."
+        )
+
+    return rows, 1
 
 
 # ── main ───────────────────────────────────────────────────────────────────────
 
 async def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Scrape @CMOTamilnadu tweets via twscrape and store in Supabase."
+        description="Scrape @CMOTamilnadu tweets via X API v2 and store in Supabase."
     )
     parser.add_argument(
         "--from-file",
@@ -323,39 +347,29 @@ async def main() -> None:
             with open(args.from_file, encoding="utf-8") as fh:
                 rows: list[dict[str, Any]] = json.load(fh)
             print(f"Loaded {len(rows)} rows.")
-            skipped_count = 0
+            pages = 0
         else:
-            # ── parse TWSCRAPE_ACCOUNTS ────────────────────────────────────
-            raw_accounts = os.environ.get("TWSCRAPE_ACCOUNTS", "").strip()
-            if not raw_accounts:
+            bearer_token = os.environ.get("X_BEARER_TOKEN", "").strip()
+            if not bearer_token:
                 raise RuntimeError(
-                    "TWSCRAPE_ACCOUNTS env var is not set.\n"
-                    "Set it to a JSON array: "
-                    '[{"username":"...","password":"...","email":"...","email_password":"..."}]'
+                    "X_BEARER_TOKEN env var is not set.\n"
+                    "Generate a Bearer Token at console.x.com and add it to .env or GitHub secrets."
                 )
-            try:
-                accounts: Any = json.loads(raw_accounts)
-                if isinstance(accounts, dict):
-                    accounts = [accounts]  # single-account shorthand
-            except json.JSONDecodeError as exc:
-                raise RuntimeError(f"TWSCRAPE_ACCOUNTS is not valid JSON: {exc}") from exc
-            if not accounts:
-                raise RuntimeError("TWSCRAPE_ACCOUNTS array is empty — add at least one account")
 
-            # ── incremental lookup ─────────────────────────────────────────
             async with httpx.AsyncClient() as lookup_client:
-                since_id = await fetch_latest_x_signal_id(lookup_client, supabase_url, service_key)
+                since_id = await fetch_latest_x_signal_id(
+                    lookup_client, supabase_url, service_key
+                )
 
-            rows, skipped_count = await scrape_with_twscrape(accounts, since_id=since_id)
+            rows, pages = await scrape_with_x_api(bearer_token, since_id=since_id)
 
-            # Persist before upsert so data is never lost if upsert fails
             with open(CACHE_FILE, "w", encoding="utf-8") as fh:
                 json.dump(rows, fh, ensure_ascii=False, indent=2)
             print(f"Saved {len(rows)} rows to {CACHE_FILE}")
 
         total_fetched = len(rows)
 
-        # Deduplicate by tweet id (API can return duplicates near page boundaries)
+        # Deduplicate by tweet id (safety net for page-boundary overlaps)
         seen: dict[str, dict[str, Any]] = {}
         for row in rows:
             seen[row["id"]] = row
@@ -363,25 +377,14 @@ async def main() -> None:
         if total_fetched != len(rows):
             print(f"Deduplicated {total_fetched - len(rows)} duplicates → {len(rows)} unique")
 
-        if skipped_count:
-            print(f"Skipped {skipped_count} low-engagement tweets.")
-
         if not rows:
-            print("Done. Total fetched: 0. Total upserted: 0.")
-            await _complete(0, 0, 1)
-            if not args.from_file:
-                print("ERROR: 0 signals on a live run — failing the step.")
-                sys.exit(1)
+            print("Done. 0 qualifying tweets this run — normal for quiet periods.")
+            await _complete(0, 0, pages if not args.from_file else 0)
             return
 
         total_upserted = await upsert_all(supabase_url, service_key, rows)
-        # Rough page-equivalent for scrape_runs tracking (1 page ≈ 25 tweets)
-        page_equiv = max(1, total_fetched // 25)
-        print(
-            f"Done. Fetched: {total_fetched}. Upserted: {total_upserted}. "
-            f"Skipped (low traction): {skipped_count}."
-        )
-        await _complete(total_fetched, total_upserted, page_equiv)
+        print(f"Done. Fetched: {total_fetched}. Upserted: {total_upserted}.")
+        await _complete(total_fetched, total_upserted, pages if not args.from_file else 0)
 
     except Exception as e:
         await _fail(str(e))

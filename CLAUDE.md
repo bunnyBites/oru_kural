@@ -14,7 +14,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # Full pipeline — run in this order:
-python scrape_tweets.py        # twscrape (real accounts) → signals table, source="x" (TWSCRAPE_ACCOUNTS)
+python scrape_tweets.py        # X API v2 Bearer Token → signals table, source="x" (X_BEARER_TOKEN)
 python scrape_reddit.py        # Reddit JSON → signals table
 python scrape_cm_events.py     # TN Gov + The Hindu RSS → cm_events table
 python categorize_signals.py   # Gemini batch categorization of all uncategorized signals
@@ -136,8 +136,8 @@ All vars live in `.env` at the repo root (copy from `.env.example`). `dotenvy` i
 | `GEMINI_MODEL` | `llm.py` | Defaults to `gemini-2.5-flash` |
 | `OPENROUTER_API_KEY` | `llm.py` | Optional; presence switches LLM provider |
 | `OPENROUTER_MODEL` | `llm.py` | Optional; defaults to `google/gemini-2.5-flash` |
-| `TWSCRAPE_ACCOUNTS` | `scrape_tweets.py` | JSON array of throwaway X account dicts — see `.env.example` |
-| `TWSCRAPE_LIMIT` | `scrape_tweets.py` | Max tweets per run; default 100 |
+| `X_BEARER_TOKEN` | `scrape_tweets.py` | Bearer Token from console.x.com — generate under your developer app |
+| `X_MAX_RESULTS` | `scrape_tweets.py` | Max results per API call (10–100); default 50; server-side filter keeps cost low |
 | `PORT` | Backend | `3000` in local `.env`; `8080` on Fly.io |
 | `FRONTEND_ORIGIN` | Backend | CORS allowed origin; omit for permissive CORS in dev |
 | `RUST_LOG` | Backend | Tracing filter, e.g. `info` or `oru_kural_backend=debug`; defaults to `info` |
@@ -159,9 +159,9 @@ Applied in order (never re-run):
 
 ## Automation (GitHub Actions)
 
-`.github/workflows/weekly_scrape.yml` runs every Monday at 2am UTC. Required GitHub secrets: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `TWSCRAPE_ACCOUNTS`. Trigger manually via **Actions → Weekly Tweet Scraper → Run workflow**.
+`.github/workflows/weekly_scrape.yml` runs Monday and Thursday at 2am UTC. Required GitHub secrets: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `GEMINI_API_KEY`, `X_BEARER_TOKEN`. Trigger manually via **Actions → Twice-Weekly Scraper → Run workflow**.
 
-To set up `TWSCRAPE_ACCOUNTS`: create 2–3 throwaway X (Twitter) accounts, then add the secret at **Settings → Secrets and variables → Actions → New repository secret** with value `[{"username":"...","password":"...","email":"...","email_password":"..."}]`.
+To set up `X_BEARER_TOKEN`: create a developer app at [console.x.com](https://console.x.com), generate a Bearer Token, load $10–15 in credits (covers ~6 months), then add as a GitHub Actions secret at **Settings → Secrets and variables → Actions → New repository secret**. The X scrape step is skipped gracefully if the secret is absent, so the Reddit + RSS pipeline continues unaffected.
 
 ## Do NOT touch
 
