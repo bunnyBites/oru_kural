@@ -10,14 +10,27 @@ pub fn EventCard(event: CmEvent) -> Element {
     let is_tamil = *ctx.tamil_mode.read();
     let t = i18n::get(is_tamil);
 
+    let title = if is_tamil {
+        event.title_ta.as_deref().unwrap_or(&event.title)
+    } else {
+        &event.title
+    };
+    let description: Option<&str> = if is_tamil {
+        event.description_ta.as_deref().or(event.description.as_deref())
+    } else {
+        event.description.as_deref()
+    };
+
     rsx! {
         div {
             class: "bg-tvk-surface border border-tvk-border rounded-xl p-5 \
                     hover:border-tvk-border-hover hover:shadow-sm transition-all duration-150",
 
             div { class: "flex items-start justify-between gap-2 mb-3",
-                p { class: "font-body font-semibold text-sm text-tvk-text leading-snug",
-                    "{event.title}"
+                p {
+                    class: "font-body font-semibold text-sm text-tvk-text leading-snug",
+                    class: if is_tamil { "font-tamil" } else { "" },
+                    "{title}"
                 }
                 if event.linked_issue_id.is_some() {
                     span {
@@ -39,8 +52,10 @@ pub fn EventCard(event: CmEvent) -> Element {
                 }
             }
 
-            if let Some(desc) = &event.description {
-                p { class: "text-sm font-body text-tvk-text-secondary leading-relaxed line-clamp-3",
+            if let Some(desc) = description {
+                p {
+                    class: "text-sm font-body text-tvk-text-secondary leading-relaxed line-clamp-3",
+                    class: if is_tamil { "font-tamil" } else { "" },
                     "{desc}"
                 }
             }

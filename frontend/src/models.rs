@@ -37,7 +37,9 @@ pub struct Issue {
 pub struct CmEvent {
     pub id: i64,
     pub title: String,
+    pub title_ta: Option<String>,
     pub description: Option<String>,
+    pub description_ta: Option<String>,
     pub event_date: Option<String>,
     pub location: Option<String>,
     pub department: Option<String>,
