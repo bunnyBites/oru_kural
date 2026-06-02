@@ -183,6 +183,107 @@ async def enrich_with_gemini(events: list[dict[str, Any]]) -> list[dict[str, Any
     return events
 
 
+TAMIL_BATCH_SIZE = 20
+
+_TAMIL_PROMPT = """\
+Translate the following Tamil Nadu government CM event titles and descriptions into Tamil.
+Return ONLY valid JSON. No explanation. No markdown.
+Format:
+[{{"index": <int>, "title_ta": "<Tamil title>", "description_ta": "<Tamil description or null>"}}]
+
+Events:
+{events_json}\
+"""
+
+
+async def translate_events_to_tamil(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Translate title/description to Tamil for events where title_ta IS NULL."""
+    from google import genai
+    model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+
+    results: list[dict[str, Any]] = []
+    total_batches = (len(events) + TAMIL_BATCH_SIZE - 1) // TAMIL_BATCH_SIZE
+
+    for batch_start in range(0, len(events), TAMIL_BATCH_SIZE):
+        batch = events[batch_start : batch_start + TAMIL_BATCH_SIZE]
+        payload = [
+            {"index": i, "title": e["title"], "description": (e.get("description") or "")[:300]}
+            for i, e in enumerate(batch)
+        ]
+        prompt = _TAMIL_PROMPT.format(events_json=json.dumps(payload, ensure_ascii=False))
+        batch_num = batch_start // TAMIL_BATCH_SIZE + 1
+
+        for attempt in range(4):
+            try:
+                response = await client.aio.models.generate_content(model=model_name, contents=prompt)
+                text = response.text.strip()
+                if text.startswith("```"):
+                    lines = text.splitlines()
+                    text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+                translated = json.loads(text)
+                for row in translated:
+                    idx = row.get("index", 0)
+                    if 0 <= idx < len(batch):
+                        results.append({
+                            "id": batch[idx]["id"],
+                            "title_ta": (row.get("title_ta") or "").strip(),
+                            "description_ta": (row.get("description_ta") or "").strip() or None,
+                        })
+                print(f"  Tamil batch {batch_num}/{total_batches}: translated")
+                break
+            except Exception as exc:
+                print(f"  Tamil batch {batch_num}/{total_batches} attempt {attempt + 1} failed: {exc}")
+                if attempt < 3:
+                    await backoff_sleep(attempt)
+
+    return results
+
+
+async def backfill_tamil_translations(client: httpx.AsyncClient) -> None:
+    """Fetch cm_events where title_ta IS NULL and translate them."""
+    resp = await client.get(
+        f"{SUPABASE_URL}/rest/v1/cm_events",
+        params={"title_ta": "is.null", "select": "id,title,description", "limit": "200"},
+        headers={
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        },
+        timeout=15,
+    )
+    resp.raise_for_status()
+    events = resp.json()
+    if not events:
+        print("Tamil pass: all events already translated — skipping.")
+        return
+
+    print(f"Tamil pass: translating {len(events)} event(s)…")
+    translated = await translate_events_to_tamil(events)
+
+    patched = 0
+    for row in translated:
+        if not row.get("title_ta"):
+            continue
+        r = await client.patch(
+            f"{SUPABASE_URL}/rest/v1/cm_events",
+            params={"id": f"eq.{row['id']}"},
+            json={"title_ta": row["title_ta"], "description_ta": row["description_ta"]},
+            headers={
+                "apikey": SUPABASE_SERVICE_ROLE_KEY,
+                "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+                "Content-Type": "application/json",
+                "Prefer": "return=minimal",
+            },
+            timeout=15,
+        )
+        if r.is_success:
+            patched += 1
+        else:
+            print(f"  warning: patch tamil for event {row['id']} failed: {r.text}")
+
+    print(f"Tamil pass done. Patched {patched}/{len(events)} event(s).")
+
+
 async def upsert_events(client: httpx.AsyncClient, events: list[dict[str, Any]]) -> int:
     if not events:
         return 0
@@ -246,6 +347,10 @@ async def main() -> None:
         async with httpx.AsyncClient() as client:
             upserted = await upsert_events(client, events)
         print(f"Done. Upserted: {upserted} events.")
+
+        print("Translating CM events to Tamil…")
+        async with httpx.AsyncClient() as client:
+            await backfill_tamil_translations(client)
 
         if run_id is not None:
             async with httpx.AsyncClient() as tc:
