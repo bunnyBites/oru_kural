@@ -27,12 +27,13 @@ RSS_FEEDS: list[tuple[str, str]] = [
     ("https://www.thehindu.com/news/national/tamil-nadu/?service=rss", "The Hindu TN"),
 ]
 
-# HTML sources scraped directly (no RSS available)
-# Each entry: (url, source_name)
-HTML_SOURCES: list[tuple[str, str]] = [
-    ("https://chennai.nic.in/category/press-release/", "Chennai District"),
-    ("https://tn.nic.in/events/", "TN NIC Events"),
-]
+# HTML sources removed — chennai.nic.in and tn.nic.in are too slow/unreliable for CI
+# (consistently caused 10-minute timeouts in GitHub Actions). Kept here for reference
+# if you want to run them locally: uncomment and call scrape_html_sources() in main().
+# HTML_SOURCES: list[tuple[str, str]] = [
+#     ("https://chennai.nic.in/category/press-release/", "Chennai District"),
+#     ("https://tn.nic.in/events/", "TN NIC Events"),
+# ]
 
 ENRICH_BATCH_SIZE = 20
 
@@ -242,9 +243,11 @@ async def translate_events_to_tamil(events: list[dict[str, Any]]) -> list[dict[s
 
 async def backfill_tamil_translations(client: httpx.AsyncClient) -> None:
     """Fetch cm_events where title_ta IS NULL and translate them."""
+    # Cap at 40 per run (2 Gemini batches) to stay well within the 15-min CI timeout.
+    # Untranslated events will be picked up in the next pipeline run.
     resp = await client.get(
         f"{SUPABASE_URL}/rest/v1/cm_events",
-        params={"title_ta": "is.null", "select": "id,title,description", "limit": "200"},
+        params={"title_ta": "is.null", "select": "id,title,description", "limit": "40"},
         headers={
             "apikey": SUPABASE_SERVICE_ROLE_KEY,
             "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
@@ -329,11 +332,6 @@ async def main() -> None:
     try:
         print("Parsing RSS feeds…")
         events = parse_feeds()
-
-        print("Scraping HTML sources…")
-        async with httpx.AsyncClient() as html_client:
-            html_events = await scrape_html_sources(html_client)
-        events.extend(html_events)
         print(f"  total raw events: {len(events)}")
 
         if not events:

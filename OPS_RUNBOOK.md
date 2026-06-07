@@ -10,11 +10,17 @@ You do not need to write code or understand Rust/Python to follow these procedur
 ```
 Data sources         Pipeline (GitHub Actions)      Database        Dashboard
 ─────────────        ─────────────────────────      ────────        ─────────
-X (@CMOTamilnadu) ─┐                                            ┌─ Vercel (frontend)
+X (@CMOTamilnadu) ─┐                                            ┌─ Vercel → oru-kural.vercel.app
 Reddit            ─┼─► Runs Mon + Thu, 2am UTC ──► Supabase ──►┤
-TN Gov RSS        ─┤   (fully automated)                        └─ Fly.io (backend API)
+TN Gov RSS        ─┤   (fully automated)                        └─ Fly.io → oru-kural-backend.fly.dev
 CM Helpline stats ─┘
 ```
+
+**Live URLs:**
+- Dashboard: https://oru-kural.vercel.app
+- Backend API: https://oru-kural-backend.fly.dev
+- Health check: https://oru-kural-backend.fly.dev/health
+- Last scrape info: https://oru-kural-backend.fly.dev/meta
 
 The pipeline runs automatically. Most weeks you will do nothing.  
 This runbook tells you what to do when something looks wrong.
@@ -82,6 +88,9 @@ Secrets used by the pipeline:
 | `GEMINI_API_KEY` | Google AI Studio key | [aistudio.google.com](https://aistudio.google.com) → API Keys |
 | `X_BEARER_TOKEN` | X API Bearer Token (~$0.65/month) | [developer.x.com](https://developer.x.com) → your app → Keys and tokens |
 | `FLY_API_TOKEN` | Fly.io deploy token | Fly.io dashboard → Access Tokens |
+| `ALERT_EMAIL_USER` | Gmail address that sends failure alerts | The Gmail account you set up for alerts |
+| `ALERT_EMAIL_PASSWORD` | Gmail App Password (not your login) | myaccount.google.com → Security → App Passwords |
+| `ALERT_EMAIL_TO` | Who receives pipeline failure alerts | IT team monitored inbox |
 
 ### Fly.io backend secrets
 ```bash

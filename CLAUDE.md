@@ -60,7 +60,7 @@ scripts/          Python async pipeline (httpx — never use requests library)
 
 backend/          Rust + Axum REST API (Supabase REST proxy)
   src/models.rs         Signal, Issue, CmEvent, CategoryStat + response envelopes
-  src/handlers.rs       6 handlers: health, list_issues, get_issue, list_signals, list_events, get_stats
+  src/handlers.rs       7 handlers: health, list_issues, get_issue, list_signals, list_events, get_stats, get_meta
                         fetch_json<T> helper enforces 10s Supabase timeout (504 on breach)
   src/main.rs           AppState{client, supabase_url, supabase_key}, router, middleware stack:
                           SetRequestIdLayer (UUID v4 → x-request-id header)
@@ -77,11 +77,12 @@ backend/          Rust + Axum REST API (Supabase REST proxy)
     GET /signals         → PagedResponse<Signal> (source, category, q, limit, cursor)
     GET /events          → PagedResponse<CmEvent>(category, linked, limit, cursor)
     GET /stats           → { data: Vec<CategoryStat> }
+    GET /meta            → { last_scrape_at, last_scrape_status } (latest row from scrape_runs)
 
 frontend/         Rust + Dioxus 0.7 (compiles to WASM)
-  src/api.rs            fetch_issues, fetch_issue_detail, fetch_events, fetch_stats
+  src/api.rs            fetch_issues, fetch_issue_detail, fetch_events, fetch_stats, fetch_meta
                         API_BASE from option_env!("API_BASE_URL"), default http://localhost:3000
-  src/models.rs         Signal, Issue, CmEvent, CategoryStat, Tab, format_date()
+  src/models.rs         Signal, Issue, CmEvent, CategoryStat, MetaInfo, Tab, format_date()
   src/components/
     app_shell.rs        Root — provides AppCtx{active_tab, dark_mode} via context
     header.rs           Brand + tab nav + dark mode toggle
@@ -103,9 +104,9 @@ frontend/         Rust + Dioxus 0.7 (compiles to WASM)
 
 ## Key design decisions
 
-**Schema tables** — `signals` (unified X + Reddit), `issues` (clustered demands), `cm_events` (CM press releases), `signal_issue_map`, `category_stats`, `scrape_runs`. Never re-create these migrations (001–008 already applied).
+**Schema tables** — `signals` (unified X + Reddit), `issues` (clustered demands), `cm_events` (CM press releases), `signal_issue_map`, `category_stats`, `scrape_runs`. Never re-create these migrations (001–011 already applied).
 
-**RLS policies** — Supabase has Row Level Security enabled on all tables. Migration `008_anon_read_policies.sql` adds `SELECT` policies for the `anon` role on `signals`, `issues`, `cm_events`, `category_stats`, `signal_issue_map`. Without this migration the backend (which uses `SUPABASE_ANON_KEY`) returns empty arrays even when rows exist. Service role key bypasses RLS.
+**RLS policies** — Supabase has Row Level Security enabled on all tables. Migration `008_anon_read_policies.sql` adds `SELECT` policies for the `anon` role on `signals`, `issues`, `cm_events`, `category_stats`, `signal_issue_map`. Migration `011_scrape_runs_anon_read.sql` adds the same for `scrape_runs` (required for `/meta` endpoint). Without these the backend (which uses `SUPABASE_ANON_KEY`) returns empty arrays. Service role key bypasses RLS.
 
 **Backend is a thin Supabase proxy** — no direct Postgres connection, no business logic. `AppState` holds `reqwest::Client` + bare Supabase project URL + anon key. The `auth()` helper attaches `apikey` + `Authorization` headers to every PostgREST request. All pagination is keyset (no OFFSET, no COUNT(*)).
 
@@ -141,7 +142,10 @@ All vars live in `.env` at the repo root (copy from `.env.example`). `dotenvy` i
 | `PORT` | Backend | `3000` in local `.env`; `8080` on Fly.io |
 | `FRONTEND_ORIGIN` | Backend | CORS allowed origin; omit for permissive CORS in dev |
 | `RUST_LOG` | Backend | Tracing filter, e.g. `info` or `oru_kural_backend=debug`; defaults to `info` |
-| `API_BASE_URL` | Frontend (compile-time) | Backend URL baked in at `dx build`; defaults to `http://localhost:3000` |
+| `API_BASE_URL` | Frontend (compile-time) | Backend URL baked in at `dx build` via `build_web.sh`; defaults to `http://localhost:3000` |
+| `ALERT_EMAIL_USER` | GitHub Actions only | Gmail address that sends pipeline failure alerts |
+| `ALERT_EMAIL_PASSWORD` | GitHub Actions only | Gmail App Password (myaccount.google.com → Security → App Passwords) |
+| `ALERT_EMAIL_TO` | GitHub Actions only | Recipient address for failure alert emails |
 
 ## Supabase migrations
 
@@ -156,6 +160,9 @@ Applied in order (never re-run):
 | `006_v3_schema.sql` | issues, cm_events, tweet_issue_map, functions |
 | `007_signals_table.sql` | signals table (replaces tweets), signal_issue_map |
 | `008_anon_read_policies.sql` | RLS SELECT policies for anon role — required for backend reads |
+| `009_dedup_and_duplicate_of.sql` | UNIQUE index on signal_issue_map + duplicate_of column on signals |
+| `010_tamil_columns.sql` | title_ta, summary_ta columns on issues table |
+| `011_scrape_runs_anon_read.sql` | RLS SELECT policy for scrape_runs — required for /meta endpoint |
 
 ## Automation (GitHub Actions)
 
@@ -166,16 +173,14 @@ To set up `X_BEARER_TOKEN`: create a developer app at [console.x.com](https://co
 ## Do NOT touch
 
 - `scripts/scrape_tweets_apify.py` — frozen legacy Apify scraper
-- `supabase/migrations/` — migrations 002–008 are already applied; never re-create or drop tables
+- `supabase/migrations/` — migrations 002–011 are already applied; never re-create or drop tables
 - `frontend/assets/tailwind.css` — generated file, always regenerate with `npm run css`
 
 ## Known gaps / future work
 
-Only one item remains open:
+All 24 tracked tasks are complete. Reddit OAuth (T-11) was closed — the unauthenticated JSON fallback is sufficient for twice-weekly scraping at this volume.
 
-- **Reddit OAuth** — `scrape_reddit.py` uses the unauthenticated JSON fallback. Wire up `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT` when API access is approved (see T-11 in `tasks.md`).
-
-Everything else that was tracked has been implemented. A few operational notes that are expected behaviour, not bugs:
+A few operational notes that are expected behaviour, not bugs:
 
 - **`issues` table starts empty** — the Issues Board tab stays empty until `cluster_issues.py` has been run at least once. Scraping alone is not enough; clustering must run too.
 - **CORS permissive in dev** — the backend allows all origins when `FRONTEND_ORIGIN` is not set. This is intentional; production always sets the env var.
