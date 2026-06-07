@@ -10,8 +10,8 @@ use serde::{de::DeserializeOwned, Deserialize};
 
 use crate::{
     models::{
-        CategoryStat, CmEvent, HealthResponse, Issue, IssueDetailResponse, PageMeta,
-        PagedResponse, Signal, StatsResponse,
+        CategoryStat, CmEvent, HealthResponse, Issue, IssueDetailResponse, MetaResponse,
+        PageMeta, PagedResponse, Signal, ScrapeRun, StatsResponse,
     },
     AppState,
 };
@@ -361,6 +361,34 @@ pub async fn list_events(
             has_more,
         },
         data: events,
+    }))
+}
+
+// ── Meta ─────────────────────────────────────────────────────────────────────
+
+pub async fn get_meta(
+    State(state): State<AppState>,
+) -> Result<Json<MetaResponse>, StatusCode> {
+    let rows = fetch_json::<Vec<ScrapeRun>>(
+        auth(
+            state
+                .client
+                .get(format!("{}/rest/v1/scrape_runs", state.supabase_url)),
+            &state.supabase_key,
+        )
+        .query(&[
+            ("select", "script,completed_at,status,rows_written"),
+            ("order", "completed_at.desc"),
+            ("limit", "1"),
+        ]),
+        "get_meta",
+    )
+    .await?;
+
+    let latest = rows.into_iter().next();
+    Ok(Json(MetaResponse {
+        last_scrape_at: latest.as_ref().and_then(|r| r.completed_at.clone()),
+        last_scrape_status: latest.and_then(|r| r.status),
     }))
 }
 

@@ -4,7 +4,7 @@ use std::time::Duration;
 use gloo_timers::future::sleep;
 use serde::Deserialize;
 
-use crate::models::{CategoryStat, CmEvent, Issue, Signal};
+use crate::models::{CategoryStat, CmEvent, Issue, MetaInfo, Signal};
 
 const API_BASE: &str = match option_env!("API_BASE_URL") {
     Some(url) => url,
@@ -145,6 +145,18 @@ pub async fn fetch_stats() -> Result<Vec<CategoryStat>, String> {
             .await
             .map_err(|e| e.to_string())?;
         Ok(data.data)
+    })
+    .await
+}
+
+pub async fn fetch_meta() -> Result<MetaInfo, String> {
+    with_retry(|| async move {
+        reqwest::get(format!("{API_BASE}/meta"))
+            .await
+            .map_err(|e| e.to_string())?
+            .json::<MetaInfo>()
+            .await
+            .map_err(|e| e.to_string())
     })
     .await
 }
