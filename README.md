@@ -6,6 +6,31 @@ Oru Kural scrapes public posts mentioning `@CMOTamilnadu` from X and Reddit, use
 
 ---
 
+## Screenshots
+
+<img src="docs/screenshots/oru_kural_light_dashboard.png" alt="Issues Board — light mode" width="900"/>
+
+<br/>
+
+<table>
+  <tr>
+    <td><img src="docs/screenshots/orukural_dark_mode.png" alt="Issues Board — dark mode" width="440"/></td>
+    <td><img src="docs/screenshots/dashboard_tamil.png" alt="Issues Board — Tamil UI" width="440"/></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Dark mode</sub></td>
+    <td align="center"><sub>Tamil language toggle</sub></td>
+  </tr>
+</table>
+
+<br/>
+
+<img src="docs/screenshots/stats_view.png" alt="Stats tab — signal breakdown by category" width="700"/>
+
+<sub>Stats tab — signal breakdown by category, clickable cards filter the Issues Board</sub>
+
+---
+
 ## Architecture
 
 ```
@@ -166,6 +191,7 @@ All routes return JSON. No authentication required (read-only, anon key via back
 | `GET` | `/signals` | `source`, `category`, `q`, `limit`, `cursor` | `PagedResponse<Signal>` |
 | `GET` | `/events` | `category`, `linked`, `limit`, `cursor` | `PagedResponse<CmEvent>` |
 | `GET` | `/stats` | — | `{ data: CategoryStat[] }` |
+| `GET` | `/meta` | — | `{ last_scrape_at, last_scrape_status }` |
 
 - Pagination uses keyset cursors (base64-encoded timestamps). No `OFFSET`, no `COUNT(*)`.
 - `limit` is clamped to `[1, 100]` server-side.
@@ -197,7 +223,7 @@ Then push to `main` — Vercel picks up `vercel.json` and builds automatically.
 
 ### Automation — GitHub Actions
 
-Weekly pipeline runs every Monday at 2am UTC (7:30am IST) via `.github/workflows/weekly_scrape.yml`. Set these repository secrets:
+Pipeline runs **twice a week** — Monday and Thursday at 2am UTC (7:30am IST) — via `.github/workflows/weekly_scrape.yml`. Set these repository secrets:
 
 ```
 SUPABASE_URL
@@ -205,15 +231,19 @@ SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY
 GEMINI_API_KEY
 X_BEARER_TOKEN
+FLY_API_TOKEN          ← for auto-deploy workflow
+ALERT_EMAIL_USER       ← Gmail address that sends failure alerts
+ALERT_EMAIL_PASSWORD   ← Gmail app password (not your login password)
+ALERT_EMAIL_TO         ← recipient address for failure alerts
 ```
 
-Trigger manually anytime via **Actions → Weekly Tweet Scraper → Run workflow**.
+Trigger manually anytime via **Actions → Twice-Weekly Scraper → Run workflow**.
 
 ---
 
 ## Database Schema
 
-Migrations `002–008` are applied. Never re-run `001` (initial tweets table, now superseded).
+Migrations `002–010` are applied. Never re-run `001` (initial tweets table, now superseded).
 
 | Table | Purpose |
 |-------|---------|
@@ -224,6 +254,8 @@ Migrations `002–008` are applied. Never re-run `001` (initial tweets table, no
 | `category_stats` | Denormalized counts per category (tweet + issue counts) |
 | `scrape_runs` | Pipeline observability — timestamps, counts, errors |
 
+Applied migrations (in order): `002` indexes + scrape_runs · `003` category_stats · `004` retention · `005` categorization_failures · `006` v3 schema · `007` signals table · `008` anon RLS policies · `009` dedup index + duplicate_of column · `010` Tamil columns (`title_ta`, `summary_ta`)
+
 ---
 
 ## Known Issues & Gotchas
@@ -231,7 +263,7 @@ Migrations `002–008` are applied. Never re-run `001` (initial tweets table, no
 - **RLS must be configured** — migration `008` must be run in Supabase SQL editor. Without it, the anon key returns empty arrays from all tables (service role key bypasses RLS).
 - **Port conflict in local dev** — backend uses `:3000`, `dx serve` uses `:8080`. The frontend `API_BASE` defaults to `localhost:3000`. Do not run the backend on `:8080` locally or requests will hit the Dioxus dev server.
 - **`tailwind.css` is generated** — never edit `frontend/assets/tailwind.css` by hand. Run `npm run css` to regenerate. Badge colors use named CSS classes in `input.css`; other dynamic color values use inline `style=` (dynamic Tailwind class names are purged at build time).
-- **Reddit API pending** — `scrape_reddit.py` uses the unauthenticated JSON fallback. Fill in `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT` when approved.
+- **Reddit uses public JSON API** — `scrape_reddit.py` uses Reddit's unauthenticated JSON fallback (`reddit.com/r/subreddit.json`). This is sufficient for the twice-weekly scrape volume and requires no credentials. No action needed.
 - **`issues` table starts empty** — data only appears after running `cluster_issues.py` at least once. Scraping alone is not enough; clustering must run too.
 
 ---
@@ -243,6 +275,6 @@ Migrations `002–008` are applied. Never re-run `001` (initial tweets table, no
 | **1 — Data pipeline** | Done | X API v2 + Reddit scraping → Supabase, Gemini categorization |
 | **2 — v3 Architecture** | Done | Unified signals table, issues clustering, CM events, Axum API, Dioxus 3-tab UI |
 | **3 — Polish & observability** | Done | Dark mode, error banners, API retry, structured logging (`tracing`), request IDs, Supabase timeouts, search, rate limiting, compression, request ID headers, signal deduplication, incremental clustering |
-| **4 — Signal expansion** | Planned | Reddit OAuth (PRAW), WhatsApp forwarded messages (manual upload), local news scraping |
-| **5 — Multilingual** | Planned | Tamil UI labels, translated signal display, language filter |
+| **4 — Signal expansion** | Partial | Grievance portal scraper done (`scrape_grievances.py`); Reddit OAuth (PRAW) pending credentials |
+| **5 — Multilingual** | Done | Tamil/English toggle in header; `title_ta` + `summary_ta` columns; Gemini translation pass |
 | **6 — Public engagement** | Planned | "Add your voice" — allow citizens to upvote issues via the UI |

@@ -90,6 +90,20 @@ pub struct HealthResponse {
     pub service: &'static str,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScrapeRun {
+    pub script: String,
+    pub completed_at: Option<String>,
+    pub status: Option<String>,
+    pub rows_written: Option<i32>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetaResponse {
+    pub last_scrape_at: Option<String>,
+    pub last_scrape_status: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

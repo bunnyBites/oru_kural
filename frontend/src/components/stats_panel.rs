@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::i18n;
-use crate::models::Tab;
+use crate::models::{format_date, Tab};
 use super::app_shell::AppCtx;
 
 #[component]
@@ -10,6 +10,7 @@ pub fn StatsPanel() -> Element {
     let is_tamil = *ctx.tamil_mode.read();
     let t = i18n::get(is_tamil);
     let stats = use_resource(|| async move { crate::api::fetch_stats().await });
+    let meta = use_resource(|| async move { crate::api::fetch_meta().await });
 
     match &*stats.read() {
         None => rsx! {
@@ -38,6 +39,21 @@ pub fn StatsPanel() -> Element {
                             "{t.stats_hint}"
                         }
                     }
+                    // Last updated footer
+                    {
+                        let last_updated = match &*meta.read() {
+                            Some(Ok(m)) => m.last_scrape_at.as_deref()
+                                .map(|ts| format_date(ts))
+                                .unwrap_or_else(|| "—".to_string()),
+                            _ => "—".to_string(),
+                        };
+                        rsx! {
+                            p { class: "text-xs font-body text-tvk-text-dim",
+                                "🔄 {t.last_updated}: {last_updated}"
+                            }
+                        }
+                    }
+
                     div { class: "grid grid-cols-2 sm:grid-cols-4 gap-3",
                         for stat in rows {
                             {

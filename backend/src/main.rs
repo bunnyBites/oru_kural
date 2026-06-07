@@ -87,6 +87,7 @@ async fn main() {
         .route("/signals", get(handlers::list_signals))
         .route("/events", get(handlers::list_events))
         .route("/stats", get(handlers::get_stats))
+        .route("/meta", get(handlers::get_meta))
         // Layers applied inside-out; last .layer() = outermost (runs first on request).
         .layer(GovernorLayer { config: governor_conf })
         .layer(cors)

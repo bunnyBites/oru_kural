@@ -99,7 +99,24 @@ jobs:
 
       - name: Notify on failure
         if: failure()
-        run: |
-          echo "::error::Oru Kural scrape job failed. Check logs above."
-          echo "Run ID: ${{ github.run_id }}"
-          echo "Triggered by: ${{ github.event_name }}"
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.ALERT_EMAIL_USER }}
+          password: ${{ secrets.ALERT_EMAIL_PASSWORD }}
+          to: ${{ secrets.ALERT_EMAIL_TO }}
+          from: Oru Kural Pipeline <${{ secrets.ALERT_EMAIL_USER }}>
+          subject: "❌ Oru Kural scrape failed — ${{ github.run_id }}"
+          body: |
+            One or more steps in the Oru Kural twice-weekly pipeline failed.
+
+            Run ID   : ${{ github.run_id }}
+            Trigger  : ${{ github.event_name }}
+            Branch   : ${{ github.ref_name }}
+
+            View the full log:
+            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Check the red steps in the log above, then consult OPS_RUNBOOK.md for remediation steps.

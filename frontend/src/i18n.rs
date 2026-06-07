@@ -55,6 +55,7 @@ pub struct Translations {
     pub issues: &'static str,
     pub open: &'static str,
     pub signals_only: &'static str,
+    pub last_updated: &'static str,
 }
 
 static EN: Translations = Translations {
@@ -104,6 +105,7 @@ static EN: Translations = Translations {
     issues: "issues",
     open: "open",
     signals_only: "signals only — no issues clustered",
+    last_updated: "Last updated",
 };
 
 static TA: Translations = Translations {
@@ -153,6 +155,7 @@ static TA: Translations = Translations {
     issues: "சிக்கல்கள்",
     open: "திறந்த",
     signals_only: "சமிக்ஞைகள் மட்டும் — சிக்கல்கள் கொத்தாக்கப்படவில்லை",
+    last_updated: "கடைசியாக புதுப்பிக்கப்பட்டது",
 };
 
 /// Return the right translation set. Call once per component render.

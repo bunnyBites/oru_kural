@@ -57,6 +57,12 @@ pub struct CategoryStat {
     pub open_count: i32,
 }
 
+#[derive(Clone, PartialEq, Deserialize)]
+pub struct MetaInfo {
+    pub last_scrape_at: Option<String>,
+    pub last_scrape_status: Option<String>,
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub enum Tab {
     Issues,
