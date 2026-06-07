@@ -27,7 +27,7 @@ Goal: drop scraping costs to near-zero, add new civic signal sources, ship Tamil
 | M6 | Update `cluster_issues.py` — Gemini Tamil generation pass | **Done** |
 | M7 | Frontend Tamil/English toggle | **Done** |
 | M8 | GitHub Actions workflow updates for new scripts | **Done** |
-| M9 | Custom domain setup | TODO |
+| M9 | Custom domain setup | In Progress — `orukural.in` registered, CNAME pending |
 
 ---
 
