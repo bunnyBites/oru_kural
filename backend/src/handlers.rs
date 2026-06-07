@@ -377,7 +377,7 @@ pub async fn get_meta(
             &state.supabase_key,
         )
         .query(&[
-            ("select", "script,completed_at,status,rows_written"),
+            ("select", "script,completed_at,status"),
             ("order", "completed_at.desc"),
             ("limit", "1"),
         ]),

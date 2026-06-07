@@ -6,3 +6,6 @@ scripts/
 *.md
 node_modules/
 dist/
+**/.venv/
+**/node_modules/
+docs/

@@ -95,7 +95,6 @@ pub struct ScrapeRun {
     pub script: String,
     pub completed_at: Option<String>,
     pub status: Option<String>,
-    pub rows_written: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]
