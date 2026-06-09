@@ -23,8 +23,12 @@ SUPABASE_URL: str = os.environ["SUPABASE_URL"].rstrip("/").removesuffix("/rest/v
 SUPABASE_SERVICE_ROLE_KEY: str = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 
 RSS_FEEDS: list[tuple[str, str]] = [
+    # tn.gov.in SSL is broken server-side (UNEXPECTED_EOF_WHILE_READING) — fetched via
+    # requests+verify=False as a workaround; parsed by feedparser from raw bytes.
     ("https://www.tn.gov.in/rss/pressrelease.xml", "TN Government"),
-    ("https://www.thehindu.com/news/national/tamil-nadu/?service=rss", "The Hindu TN"),
+    # thehindu.com now requires Cloudflare browser challenge — replaced with NDTV TN
+    # which covers the same TN civic/government stories reliably.
+    ("https://feeds.feedburner.com/ndtvnews-tamil-nadu", "NDTV Tamil Nadu"),
 ]
 
 # HTML sources removed — chennai.nic.in and tn.nic.in are too slow/unreliable for CI
@@ -62,12 +66,39 @@ async def backoff_sleep(attempt: int, base: float = 2.0, cap: float = 60.0) -> N
     await asyncio.sleep(delay)
 
 
+def _fetch_feed_bytes(url: str) -> bytes | None:
+    """Fetch RSS feed bytes with a browser-like User-Agent.
+    Falls back to SSL-unverified request for servers with broken TLS (e.g. tn.gov.in)."""
+    import requests as _requests
+    import urllib3 as _urllib3
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; OruKural/2.0 civic-dashboard)"}
+    try:
+        r = _requests.get(url, headers=headers, timeout=15, verify=True)
+        r.raise_for_status()
+        return r.content
+    except Exception:
+        pass
+    # Retry without SSL verification (for govt sites with misconfigured TLS)
+    try:
+        _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
+        r = _requests.get(url, headers=headers, timeout=15, verify=False)
+        r.raise_for_status()
+        return r.content
+    except Exception as exc:
+        print(f"  warning: could not fetch {url}: {exc}")
+        return None
+
+
 def parse_feeds() -> list[dict[str, Any]]:
-    """Parse all RSS feeds synchronously (feedparser is sync). Returns normalized event dicts."""
+    """Parse all RSS feeds. Returns normalized event dicts."""
     events: list[dict[str, Any]] = []
     for url, source_name in RSS_FEEDS:
         try:
-            feed = feedparser.parse(url)
+            raw = _fetch_feed_bytes(url)
+            if raw is None:
+                print(f"  {source_name}: skipped (fetch failed)")
+                continue
+            feed = feedparser.parse(raw)
             print(f"  {source_name}: {len(feed.entries)} entries")
             for entry in feed.entries:
                 source_url = entry.get("link", "").strip()
