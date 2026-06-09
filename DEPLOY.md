@@ -53,7 +53,7 @@ fly launch --no-deploy
 fly secrets set \
   SUPABASE_URL="https://<project-ref>.supabase.co" \
   SUPABASE_ANON_KEY="your_anon_key" \
-  FRONTEND_ORIGIN="https://oru-kural.vercel.app"
+  FRONTEND_ORIGIN="https://orukural.in"
 
 # Deploy:
 fly deploy
@@ -84,7 +84,7 @@ This script:
 
 During the first `vercel` run you'll be prompted to link the project — follow the prompts.
 
-**Stable production URL:** `https://oru-kural.vercel.app`
+**Stable production URL:** `https://orukural.in`
 
 > **Do NOT run `vercel --prod` from the repo root** — it deploys an empty shell with no WASM. Always use `build_web.sh`.
 

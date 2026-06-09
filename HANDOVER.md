@@ -2,7 +2,7 @@
 
 **Date:** June 2026  
 **Branch:** `feature/v4-multi-source-` (not yet merged to `main`)  
-**Verdict:** Not ready to hand over yet — 5 blockers + 3 polish items below.
+**Verdict:** Nearly ready — only custom domain (B2) and branch merge (B1) remain.
 
 ---
 
@@ -100,12 +100,23 @@ A civic tech tool being handed to a government team needs a visual first impress
 | 2 | Write ops runbook for IT team (B4) | ✅ Done → `OPS_RUNBOOK.md` |
 | 3 | Add GitHub Actions failure email (B5) | ✅ Done → `dawidd6/action-send-mail`, needs 3 secrets set |
 | 4 | Add "last updated" to Stats tab UI (P1) | ✅ Done → `/meta` endpoint + Stats panel footer |
-| 5 | Set up custom domain (B2) | ⏳ Pending — add CNAME in DNS registrar, then Vercel Settings → Domains |
+| 5 | Set up custom domain (B2) | ✅ Done — `orukural.in` live, CORS updated on Fly.io |
 | 6 | Add screenshots to README (P3) | ✅ Done — 4 screenshots in `docs/screenshots/`, hero + side-by-side + stats layout |
 | 7 | Merge feature branch → main (B1) | ⏳ Pending — raise PR when all above are done |
 | 8 | ~~Apply for Reddit API credentials (P2)~~ | ✅ Closed — unauthenticated fallback is sufficient |
 
-**Remaining active work: ~1 hour** (domain + screenshots + merge).
+**Remaining active work: merge branch → main** then hand over.
+
+---
+
+## Live URLs
+
+| | URL |
+|---|---|
+| 🌐 Frontend | https://orukural.in |
+| 🔧 Backend API | https://oru-kural-backend.fly.dev |
+| 📊 Health check | https://oru-kural-backend.fly.dev/health |
+| 🕐 Last scrape | https://oru-kural-backend.fly.dev/meta |
 
 ---
 

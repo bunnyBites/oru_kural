@@ -10,14 +10,14 @@ You do not need to write code or understand Rust/Python to follow these procedur
 ```
 Data sources         Pipeline (GitHub Actions)      Database        Dashboard
 ─────────────        ─────────────────────────      ────────        ─────────
-X (@CMOTamilnadu) ─┐                                            ┌─ Vercel → oru-kural.vercel.app
+X (@CMOTamilnadu) ─┐                                            ┌─ Vercel → orukural.in
 Reddit            ─┼─► Runs Mon + Thu, 2am UTC ──► Supabase ──►┤
 TN Gov RSS        ─┤   (fully automated)                        └─ Fly.io → oru-kural-backend.fly.dev
 CM Helpline stats ─┘
 ```
 
 **Live URLs:**
-- Dashboard: https://oru-kural.vercel.app
+- Dashboard: https://orukural.in
 - Backend API: https://oru-kural-backend.fly.dev
 - Health check: https://oru-kural-backend.fly.dev/health
 - Last scrape info: https://oru-kural-backend.fly.dev/meta

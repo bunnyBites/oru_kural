@@ -69,14 +69,16 @@ async fn main() {
     );
 
     let cors = match std::env::var("FRONTEND_ORIGIN") {
-        Ok(origin) => CorsLayer::new()
-            .allow_origin(
-                origin
-                    .parse::<axum::http::HeaderValue>()
-                    .expect("invalid FRONTEND_ORIGIN"),
-            )
-            .allow_methods([axum::http::Method::GET])
-            .allow_headers(Any),
+        Ok(origins) => {
+            let parsed: Vec<axum::http::HeaderValue> = origins
+                .split(',')
+                .map(|o| o.trim().parse::<axum::http::HeaderValue>().expect("invalid FRONTEND_ORIGIN entry"))
+                .collect();
+            CorsLayer::new()
+                .allow_origin(parsed)
+                .allow_methods([axum::http::Method::GET])
+                .allow_headers(Any)
+        }
         Err(_) => CorsLayer::permissive(),
     };
 
