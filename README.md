@@ -264,7 +264,7 @@ Applied migrations (in order): `002` indexes + scrape_runs · `003` category_sta
 - **Port conflict in local dev** — backend uses `:3000`, `dx serve` uses `:8080`. The frontend `API_BASE` defaults to `localhost:3000`. Do not run the backend on `:8080` locally or requests will hit the Dioxus dev server.
 - **`tailwind.css` is generated** — never edit `frontend/assets/tailwind.css` by hand. Run `npm run css` to regenerate. Badge colors use named CSS classes in `input.css`; other dynamic color values use inline `style=` (dynamic Tailwind class names are purged at build time).
 - **Reddit uses public JSON API** — `scrape_reddit.py` uses Reddit's unauthenticated JSON fallback (`reddit.com/r/subreddit.json`). This is sufficient for the twice-weekly scrape volume and requires no credentials. No action needed.
-- **`issues` table starts empty** — data only appears after running `cluster_issues.py` at least once. Scraping alone is not enough; clustering must run too.
+- **`issues` table starts empty** — data only appears after running `cluster_issues.py` at least once. Scraping alone is not enough, clustering must run too.
 
 ---
 
